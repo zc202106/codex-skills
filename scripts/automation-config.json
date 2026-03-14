@@ -16,7 +16,7 @@
     "preferPutty": false
   },
   "programs": {
-    "rk_ptz": {
+    "rk_ptz_vi": {
       "buildDir": "build-rk3588-rkptz",
       "buildTarget": "rk_ptz",
       "binaryRelativePath": "SkyNode/build-rk3588-rkptz/rk_ptz",
