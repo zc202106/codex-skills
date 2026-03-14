@@ -30,3 +30,4 @@ install-skill-from-github.py --repo <你的用户名>/codex-skills --path skills
 - 机器差异通过业务仓库内的配置文件处理
 - 板端 IP、工具链路径、日志路径、编译宏等都应放在目标仓库自己的配置中
 - 将scripts放到项目根目录下，根据本地环境修改script/automation-config.json和scripts/automation-config.local.example.json配置，scripts/automation-config.local.example.json需要修改为automation-config.local.json
+- 在 Codex 中调用 `scripts/*.ps1` 时，建议直接按提权命令执行，避免先在沙箱里试跑后重复弹确认
