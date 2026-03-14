@@ -11,6 +11,7 @@ if ($programNames -notcontains $Program) {
     throw "Unknown program: $Program"
 }
 
+$safeTailLines = [Math]::Max(1, $TailLines)
 $programConfig = Get-ProgramConfig -Name $Program
-$content = Get-LatestRemoteLogContent -LogGlob $programConfig["remoteLogGlob"] -TailLines $TailLines
-$content
+$content = @(Get-LatestRemoteLogContent -LogGlob $programConfig["remoteLogGlob"] -TailLines $safeTailLines)
+$content | ForEach-Object { Write-Output $_ }

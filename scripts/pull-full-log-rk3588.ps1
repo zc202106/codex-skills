@@ -25,4 +25,6 @@ if (-not $logPath) {
 }
 
 Copy-RemoteFileToLocal -RemotePath $logPath -LocalDirectory $OutputDir
-Write-Output $logPath
+$localFilePath = Join-Path $OutputDir ([System.IO.Path]::GetFileName($logPath))
+Write-Output "REMOTE_LOG:$logPath"
+Write-Output "LOCAL_LOG:$localFilePath"

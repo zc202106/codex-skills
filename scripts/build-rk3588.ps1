@@ -16,9 +16,18 @@ $toolchain = Get-ToolchainConfig
 $wslProjectPath = Get-WslProjectPath
 $buildDir = $programConfig["buildDir"]
 $buildTarget = $programConfig["buildTarget"]
-$configureArgs = ($programConfig["configureArgs"] -join " ")
+$configureArgs = @($programConfig["configureArgs"] | Where-Object { $_ }) -join " "
+
+if (-not $buildDir) {
+    throw "Missing buildDir for program: $Program"
+}
+
+if (-not $buildTarget) {
+    throw "Missing buildTarget for program: $Program"
+}
 
 if ($Clean) {
+    Write-Host "Clean build directory: $buildDir"
     Invoke-WslCommand -Command "cd $wslProjectPath && rm -rf $buildDir"
 }
 
@@ -30,4 +39,7 @@ $configureCommand = @(
     "$($toolchain["cmake"]) --build $buildDir --target $buildTarget -j"
 ) -join " && "
 
+Write-Host "Program: $Program"
+Write-Host "Build target: $buildTarget"
+Write-Host "Build directory: $buildDir"
 Invoke-WslCommand -Command $configureCommand

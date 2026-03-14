@@ -13,9 +13,16 @@ if ($programNames -notcontains $Program) {
 $programConfig = Get-ProgramConfig -Name $Program
 
 try {
-    Invoke-RemoteCommand -Command $programConfig["remoteStopCommand"]
+    Stop-RemoteProgram -ProgramConfig $programConfig
 } catch {
     Write-Host "Stop command returned non-zero, continue."
 }
 Start-Sleep -Seconds 2
-Invoke-RemoteCommand -Command $programConfig["remoteStartCommand"]
+Start-RemoteProgramDetached -ProgramName $Program -ProgramConfig $programConfig
+Start-Sleep -Seconds 3
+$processStatus = @(Get-RemoteProcessStatus -ProgramConfig $programConfig)
+if ($processStatus.Count -eq 0) {
+    Write-Host "Remote process not found after start."
+} else {
+    $processStatus | ForEach-Object { Write-Host $_ }
+}

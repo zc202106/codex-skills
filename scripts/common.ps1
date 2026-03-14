@@ -157,9 +157,83 @@ function Get-ProgramConfig {
     return $config["programs"][$Name]
 }
 
+function Invoke-ExternalProcess {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$FilePath,
+        [string[]]$Arguments = @(),
+        [int]$TimeoutSeconds = 20,
+        [switch]$AllowNonZeroExit
+    )
+
+    $stdoutPath = [System.IO.Path]::GetTempFileName()
+    $stderrPath = [System.IO.Path]::GetTempFileName()
+    try {
+        $process = Start-Process -FilePath $FilePath -ArgumentList $Arguments -PassThru -NoNewWindow -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+        if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+            try {
+                $process.Kill()
+            } catch {
+            }
+            throw "Command timed out after ${TimeoutSeconds}s: $FilePath $($Arguments -join ' ')"
+        }
+
+        $stdoutLines = if (Test-Path $stdoutPath) { @(Get-Content $stdoutPath) } else { @() }
+        $stderrLines = if (Test-Path $stderrPath) { @(Get-Content $stderrPath) } else { @() }
+        $outputLines = @($stdoutLines + $stderrLines)
+
+        if (-not $AllowNonZeroExit -and $process.ExitCode -ne 0) {
+            $details = if ($outputLines.Count -gt 0) { "`n$($outputLines -join "`n")" } else { "" }
+            throw "Command failed with exit code $($process.ExitCode): $FilePath $($Arguments -join ' ')$details"
+        }
+
+        return [pscustomobject]@{
+            ExitCode = $process.ExitCode
+            Output = $outputLines
+        }
+    } finally {
+        Remove-Item $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function ConvertTo-PosixSingleQuotedString {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Value
+    )
+
+    return "'" + ($Value -replace "'", "'`"`'`"`'") + "'"
+}
+
+function Join-PosixCommandArguments {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$Arguments
+    )
+
+    return (($Arguments | ForEach-Object { ConvertTo-PosixSingleQuotedString -Value $_ }) -join " ")
+}
+
+function Get-RemoteProcessName {
+    param(
+        [Parameter(Mandatory = $true)]
+        [hashtable]$ProgramConfig
+    )
+
+    if ($ProgramConfig.ContainsKey("remoteBinaryPath") -and $ProgramConfig["remoteBinaryPath"]) {
+        return [System.IO.Path]::GetFileName([string]$ProgramConfig["remoteBinaryPath"])
+    }
+
+    if ($ProgramConfig.ContainsKey("buildTarget") -and $ProgramConfig["buildTarget"]) {
+        return [string]$ProgramConfig["buildTarget"]
+    }
+
+    throw "Failed to resolve remote process name from program config."
+}
+
 function Test-WslSshPass {
-    & wsl bash -c "command -v sshpass >/dev/null 2>&1"
-    return ($LASTEXITCODE -eq 0)
+    $result = Invoke-ExternalProcess -FilePath "wsl.exe" -Arguments @("bash", "-lc", "command -v sshpass >/dev/null 2>&1") -TimeoutSeconds 5 -AllowNonZeroExit
+    return ($result.ExitCode -eq 0)
 }
 
 function Convert-WindowsPathToWsl {
@@ -187,10 +261,8 @@ function Invoke-WslCommand {
 
     Write-Host "WSL command:"
     Write-Host $Command
-    & wsl bash -c $Command
-    if ($LASTEXITCODE -ne 0) {
-        throw "WSL command failed."
-    }
+    $quotedCommand = '"' + ($Command -replace '"', '\"') + '"'
+    [void](Invoke-ExternalProcess -FilePath "wsl.exe" -Arguments @("bash", "-lc", $quotedCommand) -TimeoutSeconds 1200)
 }
 
 function Invoke-RemoteCommand {
@@ -202,19 +274,26 @@ function Invoke-RemoteCommand {
     $board = Get-BoardConfig
     $plink = Get-Command plink -ErrorAction SilentlyContinue
     if ($plink) {
-        & $plink.Source -batch -pw $board.password "$($board.user)@$($board.host)" $Command
-        if ($LASTEXITCODE -ne 0) {
-            throw "Remote command failed: $Command"
-        }
-        return
+        $result = Invoke-ExternalProcess -FilePath $plink.Source -Arguments @("-batch", "-pw", $board.password, "$($board.user)@$($board.host)", $Command) -TimeoutSeconds 20
+        return $result.Output
     }
 
     if (Test-WslSshPass) {
-        & wsl sshpass -p $board.password ssh -o StrictHostKeyChecking=no "$($board.user)@$($board.host)" $Command
-        if ($LASTEXITCODE -ne 0) {
-            throw "Remote command failed: $Command"
-        }
-        return
+        $escapedPassword = ConvertTo-PosixSingleQuotedString -Value $board.password
+        $bashCommand = Join-PosixCommandArguments -Arguments @(
+            "sshpass", "-e", "ssh", "-T",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "UserKnownHostsFile=/dev/null",
+            "-o", "LogLevel=ERROR",
+            "-o", "ConnectTimeout=8",
+            "-o", "ServerAliveInterval=5",
+            "-o", "ServerAliveCountMax=1",
+            "$($board.user)@$($board.host)",
+            $Command
+        )
+        $quotedCommand = '"' + (("SSHPASS=$escapedPassword $bashCommand") -replace '"', '\"') + '"'
+        $result = Invoke-ExternalProcess -FilePath "wsl.exe" -Arguments @("bash", "-lc", $quotedCommand) -TimeoutSeconds 20
+        return $result.Output
     }
 
     throw "No remote execution tool available."
@@ -231,19 +310,24 @@ function Copy-FileToBoard {
     $board = Get-BoardConfig
     $pscp = Get-Command pscp -ErrorAction SilentlyContinue
     if ($pscp) {
-        & $pscp.Source -batch -pw $board.password $LocalPath "$($board.user)@$($board.host):$RemotePath"
-        if ($LASTEXITCODE -ne 0) {
-            throw "Upload failed: $LocalPath -> $RemotePath"
-        }
+        [void](Invoke-ExternalProcess -FilePath $pscp.Source -Arguments @("-batch", "-pw", $board.password, $LocalPath, "$($board.user)@$($board.host):$RemotePath") -TimeoutSeconds 60)
         return
     }
 
     if (Test-WslSshPass) {
         $localWslPath = Convert-WindowsPathToWsl -Path $LocalPath
-        & wsl sshpass -p $board.password scp -o StrictHostKeyChecking=no $localWslPath "$($board.user)@$($board.host):$RemotePath"
-        if ($LASTEXITCODE -ne 0) {
-            throw "Upload failed: $LocalPath -> $RemotePath"
-        }
+        $escapedPassword = ConvertTo-PosixSingleQuotedString -Value $board.password
+        $bashCommand = Join-PosixCommandArguments -Arguments @(
+            "sshpass", "-e", "scp",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "UserKnownHostsFile=/dev/null",
+            "-o", "LogLevel=ERROR",
+            "-o", "ConnectTimeout=8",
+            $localWslPath,
+            "$($board.user)@$($board.host):$RemotePath"
+        )
+        $quotedCommand = '"' + (("SSHPASS=$escapedPassword $bashCommand") -replace '"', '\"') + '"'
+        [void](Invoke-ExternalProcess -FilePath "wsl.exe" -Arguments @("bash", "-lc", $quotedCommand) -TimeoutSeconds 60)
         return
     }
 
@@ -258,7 +342,11 @@ function Get-LatestRemoteLogPath {
 
     $command = "ls -t $LogGlob 2>/dev/null | head -n 1"
     $output = Invoke-RemoteCommand -Command $command
-    return ($output | Select-Object -First 1).Trim()
+    $firstLine = $output | Select-Object -First 1
+    if ($null -eq $firstLine) {
+        return ""
+    }
+    return ([string]$firstLine).Trim()
 }
 
 function Get-LatestRemoteLogContent {
@@ -293,21 +381,68 @@ function Copy-RemoteFileToLocal {
     $board = Get-BoardConfig
     $pscp = Get-Command pscp -ErrorAction SilentlyContinue
     if ($pscp) {
-        & $pscp.Source -batch -pw $board.password "$($board.user)@$($board.host):$RemotePath" $LocalDirectory
-        if ($LASTEXITCODE -ne 0) {
-            throw "Download failed: $RemotePath -> $LocalDirectory"
-        }
+        [void](Invoke-ExternalProcess -FilePath $pscp.Source -Arguments @("-batch", "-pw", $board.password, "$($board.user)@$($board.host):$RemotePath", $LocalDirectory) -TimeoutSeconds 60)
         return
     }
 
     if (Test-WslSshPass) {
         $localWslDir = Convert-WindowsPathToWsl -Path $LocalDirectory
-        & wsl sshpass -p $board.password scp -o StrictHostKeyChecking=no "$($board.user)@$($board.host):$RemotePath" $localWslDir
-        if ($LASTEXITCODE -ne 0) {
-            throw "Download failed: $RemotePath -> $LocalDirectory"
-        }
+        $escapedPassword = ConvertTo-PosixSingleQuotedString -Value $board.password
+        $bashCommand = Join-PosixCommandArguments -Arguments @(
+            "sshpass", "-e", "scp",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "UserKnownHostsFile=/dev/null",
+            "-o", "LogLevel=ERROR",
+            "-o", "ConnectTimeout=8",
+            "$($board.user)@$($board.host):$RemotePath",
+            $localWslDir
+        )
+        $quotedCommand = '"' + (("SSHPASS=$escapedPassword $bashCommand") -replace '"', '\"') + '"'
+        [void](Invoke-ExternalProcess -FilePath "wsl.exe" -Arguments @("bash", "-lc", $quotedCommand) -TimeoutSeconds 60)
         return
     }
 
     throw "No file copy tool available."
+}
+
+function Stop-RemoteProgram {
+    param(
+        [Parameter(Mandatory = $true)]
+        [hashtable]$ProgramConfig
+    )
+
+    if (-not $ProgramConfig.ContainsKey("remoteStopCommand") -or -not $ProgramConfig["remoteStopCommand"]) {
+        return
+    }
+
+    Invoke-RemoteCommand -Command $ProgramConfig["remoteStopCommand"]
+}
+
+function Start-RemoteProgramDetached {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ProgramName,
+        [Parameter(Mandatory = $true)]
+        [hashtable]$ProgramConfig
+    )
+
+    $startCommand = [string]$ProgramConfig["remoteStartCommand"]
+    if (-not $startCommand) {
+        throw "Missing remoteStartCommand for $ProgramName"
+    }
+
+    $normalizedCommand = [regex]::Replace($startCommand.Trim(), "\s*&\s*$", "")
+    $remoteLogPath = "/tmp/{0}-codex-start.log" -f $ProgramName
+    $detachedCommand = "nohup sh -lc {0} </dev/null >{1} 2>&1 &" -f (ConvertTo-PosixSingleQuotedString -Value $normalizedCommand), $remoteLogPath
+    Invoke-RemoteCommand -Command $detachedCommand
+}
+
+function Get-RemoteProcessStatus {
+    param(
+        [Parameter(Mandatory = $true)]
+        [hashtable]$ProgramConfig
+    )
+
+    $processName = Get-RemoteProcessName -ProgramConfig $ProgramConfig
+    return Invoke-RemoteCommand -Command "ps -ef | grep -F $processName | grep -v grep || true"
 }
