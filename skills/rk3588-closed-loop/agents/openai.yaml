@@ -1,0 +1,4 @@
+interface:
+  display_name: "RK3588 板端闭环"
+  short_description: "使用仓库配置与脚本完成 RK3588 板端编译、部署、启动和日志分析"
+  default_prompt: "使用当前仓库中的自动化脚本和配置文件，对 rk_ptz 或 UpperControl 执行交叉编译、部署、启动、抓取完整日志并分析问题。"
