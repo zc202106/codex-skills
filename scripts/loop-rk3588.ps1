@@ -7,19 +7,27 @@ param(
 
 . (Join-Path $PSScriptRoot "common.ps1")
 
-& (Join-Path $PSScriptRoot "build-rk3588.ps1") -Program $Program -Clean:$Clean
-if ($LASTEXITCODE -ne 0) {
-    exit $LASTEXITCODE
+function Invoke-StepScript {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ScriptPath,
+        [hashtable]$Arguments = @{}
+    )
+
+    & $ScriptPath @Arguments
 }
 
-& (Join-Path $PSScriptRoot "deploy-rk3588.ps1") -Program $Program
-if ($LASTEXITCODE -ne 0) {
-    exit $LASTEXITCODE
+Invoke-StepScript -ScriptPath (Join-Path $PSScriptRoot "build-rk3588.ps1") -Arguments @{
+    Program = $Program
+    Clean = $Clean
 }
 
-& (Join-Path $PSScriptRoot "run-rk3588.ps1") -Program $Program
-if ($LASTEXITCODE -ne 0) {
-    exit $LASTEXITCODE
+Invoke-StepScript -ScriptPath (Join-Path $PSScriptRoot "deploy-rk3588.ps1") -Arguments @{
+    Program = $Program
+}
+
+Invoke-StepScript -ScriptPath (Join-Path $PSScriptRoot "run-rk3588.ps1") -Arguments @{
+    Program = $Program
 }
 
 Start-Sleep -Seconds $WaitSeconds
