@@ -24,4 +24,4 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Start-Sleep -Seconds $WaitSeconds
-& (Join-Path $PSScriptRoot "fetch-log-rk3588.ps1") -Program $Program -TailLines $TailLines
+& (Join-Path $PSScriptRoot "pull-full-log-rk3588.ps1") -Program $Program

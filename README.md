@@ -8,7 +8,6 @@
 - 交叉编译
 - 部署到板端
 - 远端停止和启动
-- 抓取短日志
 - 拉取完整日志
 - 基于日志继续修复并重复闭环
 
@@ -40,7 +39,6 @@ your-project/
 │  ├─ build-rk3588.ps1
 │  ├─ deploy-rk3588.ps1
 │  ├─ run-rk3588.ps1
-│  ├─ fetch-log-rk3588.ps1
 │  ├─ pull-full-log-rk3588.ps1
 │  └─ show-rk3588-programs.ps1
 ├─ src/
@@ -53,7 +51,13 @@ your-project/
 可通过 Codex 的 skill 安装脚本从本仓库安装：
 
 ```bash
-install-skill-from-github.py --repo zc202106/codex-skills --path skills/rk3588-closed-loop
+$skill-installer --repo zc202106/codex-skills --path skills/rk3588-closed-loop
+```
+
+等价命令：
+
+```bash
+python ~/.codex/skills/install/.system-skill/skill-installer/scripts/install-skill-from-github.py --repo zc202106/codex-skills --path skills/rk3588-closed-loop
 ```
 
 ## 接入步骤
@@ -248,7 +252,7 @@ wsl bash -lc "sshpass -p '<你的密码>' ssh -o StrictHostKeyChecking=no <user>
 建议先用最小流程验证环境，而不是一开始就直接构建部署：
 
 1. `show-rk3588-programs.ps1`
-2. `fetch-log-rk3588.ps1`
+2. `pull-full-log-rk3588.ps1`
 3. `build-rk3588.ps1`
 4. `deploy-rk3588.ps1`
 5. `run-rk3588.ps1`
@@ -327,7 +331,6 @@ wsl bash -lc "sshpass -p '<你的密码>' ssh -o StrictHostKeyChecking=no <user>
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-rk3588.ps1 -Program <program-key>
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\deploy-rk3588.ps1 -Program <program-key>
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-rk3588.ps1 -Program <program-key>
-pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\fetch-log-rk3588.ps1 -Program <program-key> -TailLines 120
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\pull-full-log-rk3588.ps1 -Program <program-key>
 ```
 
