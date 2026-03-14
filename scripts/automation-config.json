@@ -1,0 +1,48 @@
+{
+  "repo": {
+    "wslProjectPath": "",
+    "fullLogLocalDir": "remote-logs"
+  },
+  "toolchain": {
+    "wslDistro": "",
+    "cCompiler": "",
+    "cxxCompiler": "",
+    "cmake": ""
+  },
+  "remote": {
+    "host": "",
+    "user": "",
+    "password": "",
+    "preferPutty": false
+  },
+  "programs": {
+    "rk_ptz": {
+      "buildDir": "build-rk3588-rkptz",
+      "buildTarget": "rk_ptz",
+      "binaryRelativePath": "SkyNode/build-rk3588-rkptz/rk_ptz",
+      "remoteBinaryPath": "/mnt/eop/vi/rk_ptz",
+      "remoteWorkDir": "/mnt/eop/vi",
+      "remoteStartCommand": "cd /mnt/eop/vi && ./start.sh &",
+      "remoteStopCommand": "pkill -f rk_ptz",
+      "remoteLogGlob": "/mnt/eop/logs/rkptz*.log",
+      "configureArgs": [
+        "-DBUILD_RK3588=ON",
+        "-DVI_VIDEO=ON",
+        "-DRTSP_SERVER=ON"
+      ]
+    },
+    "UpperControl": {
+      "buildDir": "build-rk3588-uppercontrol",
+      "buildTarget": "UpperControl",
+      "binaryRelativePath": "SkyNode/build-rk3588-uppercontrol/UpperControl/UpperControl",
+      "remoteBinaryPath": "/mnt/eop/control/UpperControl",
+      "remoteWorkDir": "/mnt/eop/control",
+      "remoteStartCommand": "cd /mnt/eop/control && ./start.sh &",
+      "remoteStopCommand": "pkill -f UpperControl",
+      "remoteLogGlob": "/mnt/eop/logs/upper*.log",
+      "configureArgs": [
+        "-DBUILD_RK3588=ON"
+      ]
+    }
+  }
+}

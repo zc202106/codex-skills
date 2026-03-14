@@ -1,0 +1,46 @@
+{
+  "repo": {
+    "wslProjectPath": "/mnt/d/Video/150/SkyNode"
+  },
+  "toolchain": {
+    "wslDistro": "Ubuntu",
+    "cCompiler": "/opt/toolchains/host/bin/aarch64-buildroot-linux-gnu-gcc",
+    "cxxCompiler": "/opt/toolchains/host/bin/aarch64-buildroot-linux-gnu-g++",
+    "cmake": "/opt/toolchains/host/bin/cmake"
+  },
+  "remote": {
+    "host": "192.168.1.153",
+    "user": "root",
+    "password": "change-me"
+  },
+  "programs": {
+    "rk_ptz_vi": {
+      "configureArgs": [
+        "-DBUILD_RK3588=ON",
+        "-DVI_VIDEO=ON",
+        "-DRTSP_SERVER=ON"
+      ],
+      "remoteLogGlob": "/mnt/eop/logs/rkptz_vi*.log"
+    },
+    "rk_ptz_rtsp": {
+      "configureArgs": [
+        "-DBUILD_RK3588=ON",
+        "-DRTSP_VIDEO=ON",
+        "-DRTSP_SERVER=ON"
+      ],
+      "remoteLogGlob": "/mnt/eop/logs/rkptz_rtsp*.log"
+    },
+    "rk_ptz_uvc": {
+      "configureArgs": [
+        "-DBUILD_RK3588=ON",
+        "-DUVC_VIDEO=ON",
+        "-DRTSP_SERVER=ON"
+      ]
+    },
+    "UpperControl": {
+      "configureArgs": [
+        "-DBUILD_RK3588=ON"
+      ]
+    }
+  }
+}
