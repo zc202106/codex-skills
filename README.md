@@ -29,4 +29,4 @@ install-skill-from-github.py --repo <你的用户名>/codex-skills --path skills
 - skill 不绑定具体机器路径
 - 机器差异通过业务仓库内的配置文件处理
 - 板端 IP、工具链路径、日志路径、编译宏等都应放在目标仓库自己的配置中
-- 将scripts放到项目根目录下
+- 将scripts放到项目根目录下，根据本地环境修改script/automation-config.json和scripts/automation-config.local.example.json配置
