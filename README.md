@@ -25,6 +25,8 @@
 
 就可以通过配置里的 `programs` 定义不同程序变体，然后复用同一套闭环流程。
 
+默认推荐使用单入口脚本 `scripts/loop-rk3588.ps1` 执行完整闭环，这样更容易减少 Codex 中重复的提权确认。
+
 ## 推荐目录结构
 
 建议把本仓库的 `scripts/` 目录复制到你的业务仓库根目录，让 skill 直接驱动业务仓库自己的配置和产物。
@@ -39,6 +41,7 @@ your-project/
 │  ├─ build-rk3588.ps1
 │  ├─ deploy-rk3588.ps1
 │  ├─ run-rk3588.ps1
+│  ├─ loop-rk3588.ps1
 │  ├─ pull-full-log-rk3588.ps1
 │  └─ show-rk3588-programs.ps1
 ├─ src/
@@ -253,9 +256,7 @@ wsl bash -lc "sshpass -p '<你的密码>' ssh -o StrictHostKeyChecking=no <user>
 
 1. `show-rk3588-programs.ps1`
 2. `pull-full-log-rk3588.ps1`
-3. `build-rk3588.ps1`
-4. `deploy-rk3588.ps1`
-5. `run-rk3588.ps1`
+3. `loop-rk3588.ps1`
 
 ## 配置示例
 
@@ -325,7 +326,13 @@ wsl bash -lc "sshpass -p '<你的密码>' ssh -o StrictHostKeyChecking=no <user>
 
 ## 推荐执行方式
 
-在业务仓库根目录优先使用 `pwsh` 执行脚本：
+在业务仓库根目录优先使用 `pwsh` 执行脚本。默认建议先用单入口闭环脚本：
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\loop-rk3588.ps1 -Program <program-key>
+```
+
+如果需要拆开排查，再分别执行：
 
 ```powershell
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-rk3588.ps1 -Program <program-key>
@@ -351,6 +358,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\pull-full-log-rk3588.ps1
 
 - 优先直接调用业务仓库里的 `scripts/*.ps1`
 - 统一使用 `pwsh -NoProfile -ExecutionPolicy Bypass -File ...`
+- 为减少提权确认次数，优先使用 `loop-rk3588.ps1` 这种单入口脚本
 - 这类命令通常涉及 WSL、SSH、SCP、远端进程和板端日志，建议直接按提权命令处理
 
 不建议直接手写这类长链命令去启停程序：

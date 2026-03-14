@@ -2,7 +2,6 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$Program,
     [int]$WaitSeconds = 6,
-    [int]$TailLines = 200,
     [switch]$Clean
 )
 
