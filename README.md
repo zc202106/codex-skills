@@ -180,7 +180,7 @@ python ~/.codex/skills/install/.system-skill/skill-installer/scripts/install-ski
 
 - `D:\Video\150\GroundNode\_codex_trace`
 
-## 接入步骤
+## rk3588-closed-loop 接入步骤
 
 ### 1. 复制脚本
 
@@ -233,7 +233,87 @@ scripts/automation-config.local.json
 
 如果某个程序在你的机器或板卡上有特殊日志规则，也可以在本地覆盖配置中重写 `programs.<name>.remoteLogGlob`。
 
-## 配置原则
+## vs-qt-build-loop 接入步骤
+
+### 1. 准备 Skill 配置
+
+编辑：
+
+```text
+skills/vs-qt-build-loop/config.json
+```
+
+至少确认这些节点：
+
+- `environment`
+- `project`
+- `translations`
+- `runtime`
+- `repro`
+- `uiDiagnostics`
+
+### 2. 绑定实际工程路径
+
+至少确认以下字段已经指向真实工程：
+
+- `project.projectPath`
+- `project.solutionPath`
+- `project.proPath`
+- `project.outputDirectory`
+- `runtime.executablePath`
+- `runtime.workingDirectory`
+
+### 3. 配置翻译同步目录
+
+默认应至少包含两个同步目标：
+
+- 源码目录中的翻译目录
+- exe 运行目录
+
+对应字段：
+
+- `translations.qmOutputDirectory`
+- `translations.copyTargets`
+
+### 4. 配置运行期闭环
+
+根据程序行为调整：
+
+- `runtime.startupTimeoutSeconds`
+- `runtime.captureDurationSeconds`
+- `runtime.stopAfterCapture`
+- `runtime.treatAliveAfterCaptureAsSuccess`
+
+如果程序长时间驻留、而你只是想观察启动后的控制台输出，推荐保留：
+
+- `stopAfterCapture=true`
+- `treatAliveAfterCaptureAsSuccess=true`
+
+### 5. 配置 UI 复现步骤
+
+如果你要处理 UI 逻辑 bug，优先填写：
+
+- `repro.mode`
+- `repro.steps`
+- `repro.uiAutomation.actions`
+
+如果暂时无法稳定自动化，先使用：
+
+- `repro.mode = manual-assisted`
+
+如果要启用 GUI 自动化，改成：
+
+- `repro.mode = ui-automation`
+
+### 6. 配置 UI 诊断日志建议
+
+如果你经常处理固定模块的 UI 问题，可以在这里维护关键词到文件的映射：
+
+- `uiDiagnostics.keywordRules`
+
+这样当你提出诸如“登录页按钮状态异常”“主界面切换语言不刷新”时，Skill 会优先把日志建议落到这些文件。
+
+## rk3588-closed-loop 配置原则
 
 ### automation-config.json
 
@@ -262,7 +342,7 @@ scripts/automation-config.local.json
 - 不要把项目特有坑点写死到 skill 逻辑里。
 - 所有程序差异都应通过 `programs.<name>` 配置项表达。
 
-## 环境依赖
+## rk3588-closed-loop 环境依赖
 
 建议至少具备以下环境：
 
@@ -310,7 +390,7 @@ sshpass -V
 - `plink`
 - `pscp`
 
-## 首次接入自检
+## rk3588-closed-loop 首次接入自检
 
 第一次接入新机器或新工程时，建议按顺序执行下面这些检查。
 
@@ -375,7 +455,7 @@ wsl bash -lc "sshpass -p '<你的密码>' ssh -o StrictHostKeyChecking=no <user>
 2. `pull-full-log-rk3588.ps1`
 3. `loop-rk3588.ps1`
 
-## 配置示例
+## rk3588-closed-loop 配置示例
 
 下面是一个通用示例，重点在配置结构，不代表某个具体项目必须这样命名：
 
@@ -413,7 +493,7 @@ wsl bash -lc "sshpass -p '<你的密码>' ssh -o StrictHostKeyChecking=no <user>
 }
 ```
 
-## 常见配置错误
+## rk3588-closed-loop 常见配置错误
 
 ### 1. 把 Windows 路径填到 `wslProjectPath`
 
@@ -441,7 +521,7 @@ wsl bash -lc "sshpass -p '<你的密码>' ssh -o StrictHostKeyChecking=no <user>
 
 如果编译宏、部署目录、启动命令或日志规则不同，就应该拆成多个程序项。
 
-## 推荐执行方式
+## rk3588-closed-loop 推荐执行方式
 
 在业务仓库根目录优先使用 `pwsh` 执行脚本。默认建议先用单入口闭环脚本：
 
@@ -460,7 +540,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\pull-full-log-rk3588.ps1
 
 其中 `<program-key>` 指配置文件 `programs` 下的键名。
 
-## 当前脚本特性
+## rk3588-closed-loop 当前脚本特性
 
 这套脚本是按“闭环稳定执行”收敛的，重点包括：
 
@@ -471,7 +551,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\pull-full-log-rk3588.ps1
 - 日志不存在时返回明确结果，而不是脚本空指针
 - 启动后会主动检查进程状态
 
-## 在 Codex 中使用的建议
+## 在 Codex 中使用 rk3588-closed-loop 的建议
 
 - 优先直接调用业务仓库里的 `scripts/*.ps1`
 - 统一使用 `pwsh -NoProfile -ExecutionPolicy Bypass -File ...`
@@ -484,7 +564,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\pull-full-log-rk3588.ps1
 pwsh -> wsl -> sshpass -> ssh
 ```
 
-## 常见闭环问题
+## rk3588-closed-loop 常见闭环问题
 
 ### 1. 部署时报 `Text file busy`
 
@@ -504,6 +584,50 @@ pwsh -> wsl -> sshpass -> ssh
 - `programs.<name>.remoteLogGlob` 是否正确
 - 目标程序是否真的启动成功
 - 日志规则是否与当前部署方式一致
+
+## vs-qt-build-loop 推荐执行方式
+
+推荐直接执行：
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\skills\vs-qt-build-loop\tools\Invoke-VsQtBuildLoop.ps1 -ConfigPath .\skills\vs-qt-build-loop\config.json -ProjectPath D:\Video\150\GroundNode\PoseidonCore.sln
+```
+
+如果只想单独调某个阶段，也可以分别执行：
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\skills\vs-qt-build-loop\tools\Update-QtTranslations.ps1 -ConfigPath .\skills\vs-qt-build-loop\config.json -ProjectRoot D:\Video\150\GroundNode -OutputDirectory D:\Video\150\GroundNode\x64\Release\Ruiyan_UAV
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\skills\vs-qt-build-loop\tools\Add-DiagnosticLogs.ps1 -ConfigPath .\skills\vs-qt-build-loop\config.json -IssueText "主界面切换语言后按钮状态没有刷新"
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\skills\vs-qt-build-loop\tools\Invoke-ReproScenario.ps1 -ConfigPath .\skills\vs-qt-build-loop\config.json -OutputPath .\repro-summary.json
+```
+
+## vs-qt-build-loop 使用建议
+
+- 提 UI bug 时，尽量描述“入口界面 + 操作步骤 + 期望结果 + 实际结果”
+- 如果问题不稳定，优先让我先加日志再跑闭环
+- GUI 自动化优先使用控件级动作：
+  - `click_control`
+  - `set_text_control`
+  - `invoke_control`
+- 如果控件树不稳定，再退回：
+  - `send_keys`
+  - `click_position`
+
+## vs-qt-build-loop 当前边界
+
+- 当前已支持：
+  - 自动编译
+  - 自动运行
+  - 控制台日志抓取
+  - 翻译同步
+  - 追溯记录
+  - UI 诊断日志建议
+  - GUI 自动化基础动作
+  - GUI 自动化控件级动作
+- 当前仍建议人工辅助的部分：
+  - 特殊弹窗处理
+  - 多显示器/分辨率差异下的坐标策略
+  - 极复杂自绘控件的精准交互
 
 ## 适用边界
 
