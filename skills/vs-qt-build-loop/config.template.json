@@ -1,0 +1,114 @@
+{
+  "environment": {
+    "vsVersion": "VS2017",
+    "vcVarsAll": "C:\\Path\\To\\vcvarsall.bat",
+    "vcArch": "amd64",
+    "msbuildPath": "C:\\Path\\To\\MSBuild.exe",
+    "qtRoot": "C:\\Qt\\5.11.0\\msvc2017_64",
+    "qmakePath": "C:\\Qt\\5.11.0\\msvc2017_64\\bin\\qmake.exe",
+    "lupdatePath": "C:\\Qt\\5.11.0\\msvc2017_64\\bin\\lupdate.exe",
+    "lreleasePath": "C:\\Qt\\5.11.0\\msvc2017_64\\bin\\lrelease.exe",
+    "jomPath": "C:\\Qt\\Tools\\QtCreator\\bin\\jom.exe"
+  },
+  "project": {
+    "projectPath": "D:\\Work\\Demo\\Demo.sln",
+    "solutionPath": "D:\\Work\\Demo\\Demo.sln",
+    "proPath": "D:\\Work\\Demo\\Demo.pro",
+    "buildDirectory": "D:\\Work\\Demo\\build",
+    "outputDirectory": "D:\\Work\\Demo\\build\\bin",
+    "configuration": "Release",
+    "platform": "x64",
+    "msbuildTargets": [
+      "Build"
+    ],
+    "msbuildProperties": {
+      "Configuration": "Release",
+      "Platform": "x64",
+      "QtInstall": "C:\\Qt\\5.11.0\\msvc2017_64",
+      "QtMsBuild": "D:\\Work\\Demo\\QtMsBuild",
+      "TrackFileAccess": "false",
+      "ForceRebuild": "true"
+    },
+    "qmakeArguments": [],
+    "jomArguments": [
+      "/J",
+      "8"
+    ]
+  },
+  "translations": {
+    "enabled": true,
+    "tsSearchRoot": "D:\\Work\\Demo",
+    "tsPatterns": [
+      "*.ts"
+    ],
+    "lupdateTargets": [
+      "D:\\Work\\Demo\\Demo.pro"
+    ],
+    "qmOutputDirectory": "D:\\Work\\Demo\\translations",
+    "copyTargets": [
+      "D:\\Work\\Demo\\translations",
+      "D:\\Work\\Demo\\build\\bin"
+    ]
+  },
+  "uiDiagnostics": {
+    "enabled": true,
+    "logFunction": "qDebug",
+    "markerPrefix": "[CODEX_UI]",
+    "defaultTargets": [
+      "D:\\Work\\Demo"
+    ],
+    "keywordRules": []
+  },
+  "runtime": {
+    "enabled": true,
+    "workingDirectory": "D:\\Work\\Demo\\build\\bin",
+    "executablePath": "D:\\Work\\Demo\\build\\bin\\Demo.exe",
+    "arguments": [],
+    "startupTimeoutSeconds": 15,
+    "captureDurationSeconds": 20,
+    "stopAfterCapture": true,
+    "treatAliveAfterCaptureAsSuccess": true,
+    "allowNonZeroExitCode": false,
+    "errorRules": []
+  },
+  "repro": {
+    "enabled": true,
+    "mode": "manual-assisted",
+    "scenarioName": "默认启动观察",
+    "steps": [
+      {
+        "type": "launch",
+        "description": "启动程序并观察初始化日志"
+      },
+      {
+        "type": "wait",
+        "seconds": 20,
+        "description": "等待首轮日志输出"
+      }
+    ],
+    "uiAutomation": {
+      "windowTitlePattern": "Demo",
+      "postLaunchDelaySeconds": 3,
+      "actions": []
+    }
+  },
+  "trace": {
+    "directoryName": "_codex_trace",
+    "maxAttempts": 3,
+    "saveBeforeAfter": true
+  },
+  "repair": {
+    "enableAutoFix": true,
+    "allowedFixes": [
+      "rerun-qmake",
+      "ensure-output-directory",
+      "refresh-translations"
+    ],
+    "errorRules": []
+  },
+  "report": {
+    "reportFileName": "build-report.md",
+    "jsonReportFileName": "build-report.json",
+    "qmManifestFileName": "qm-manifest.json"
+  }
+}
