@@ -1,14 +1,13 @@
 # codex-skills
 
-这个仓库提供一套面向嵌入式 Linux 板端程序的 Codex skills 和配套自动化脚本，重点解决的是“闭环流程”本身，而不是某个具体业务程序的历史坑点。
+这个仓库提供一套面向不同开发场景的 Codex skills 和配套自动化脚本，重点解决的是“闭环流程”本身，而不是某个具体业务程序的历史坑点。
 
 当前核心目标是让使用者可以围绕同一套流程完成：
 
 - 读取配置
-- 交叉编译
-- 部署到板端
-- 远端停止和启动
-- 拉取完整日志
+- 自动构建
+- 自动运行或部署
+- 拉取或抓取日志
 - 基于日志继续修复并重复闭环
 
 ## 当前包含的 Skill
@@ -27,9 +26,48 @@
 
 默认推荐使用单入口脚本 `scripts/loop-rk3588.ps1` 执行完整闭环，这样更容易减少 Codex 中重复的提权确认。
 
+### vs-qt-build-loop
+
+适用于 Windows 10/11 下基于 VS2017 + Qt 5.11.0 的 `.sln` / `.vcxproj` / `.pro` 工程自动化闭环。
+
+这个 skill 当前已经按 `D:\Video\150\GroundNode\PoseidonCore.sln` 做过实测适配，重点能力包括：
+
+- 自动激活 `vcvarsall.bat` 与 Qt 工具链
+- 自动选择 `MSBuild` 或 `qmake + jom`
+- 自动更新 `.ts` 并生成 `.qm`
+- 同步翻译文件到源码目录和 exe 运行目录
+- 编译失败时按规则分析与重试
+- 编译成功后自动运行程序并抓取控制台日志
+- 记录运行期分析结果
+- 在 `.sln` 同级生成 `_codex_trace` 追溯目录
+- 支持 UI 逻辑问题的诊断日志建议
+- 支持 GUI 复现步骤定义
+- 支持基础 GUI 自动化动作
+- 支持控件级自动化动作：
+  - 按窗口标题定位窗口
+  - 按控件文本定位控件
+  - 按 `AutomationId` 定位控件
+  - 按 `controlType` 过滤控件
+
+当前目录位置：
+
+- `skills/vs-qt-build-loop/`
+
+当前核心脚本包括：
+
+- `tools/Invoke-VsQtBuildLoop.ps1`
+- `tools/Update-QtTranslations.ps1`
+- `tools/Start-ProgramWithLogs.ps1`
+- `tools/Analyze-RuntimeLog.ps1`
+- `tools/Add-DiagnosticLogs.ps1`
+- `tools/Invoke-ReproScenario.ps1`
+- `tools/Invoke-UiAutomationScenario.ps1`
+
+当前推荐使用方式是：先在 skill 目录中维护 `config.json`，再由 `Invoke-VsQtBuildLoop.ps1` 统一执行“编译 -> 运行 -> 抓日志 -> 分析”的闭环。
+
 ## 推荐目录结构
 
-建议把本仓库的 `scripts/` 目录复制到你的业务仓库根目录，让 skill 直接驱动业务仓库自己的配置和产物。
+对于 `rk3588-closed-loop`，建议把本仓库的 `scripts/` 目录复制到你的业务仓库根目录，让 skill 直接驱动业务仓库自己的配置和产物。
 
 ```text
 your-project/
@@ -49,19 +87,98 @@ your-project/
 └─ ...
 ```
 
+对于 `vs-qt-build-loop`，建议直接保留 skill 自身目录结构，在 skill 目录里维护项目配置：
+
+```text
+codex-skills/
+├─ skills/
+│  └─ vs-qt-build-loop/
+│     ├─ SKILL.md
+│     ├─ config.json
+│     └─ tools/
+│        ├─ Invoke-VsQtBuildLoop.ps1
+│        ├─ Start-ProgramWithLogs.ps1
+│        ├─ Analyze-RuntimeLog.ps1
+│        ├─ Add-DiagnosticLogs.ps1
+│        ├─ Invoke-ReproScenario.ps1
+│        └─ Invoke-UiAutomationScenario.ps1
+└─ ...
+```
+
 ## 安装 Skill
 
-可通过 Codex 的 skill 安装脚本从本仓库安装：
+可通过 Codex 的 skill 安装脚本从本仓库安装。
+
+安装 `rk3588-closed-loop`：
 
 ```bash
 $skill-installer --repo zc202106/codex-skills --path skills/rk3588-closed-loop
 ```
 
-等价命令：
+安装 `vs-qt-build-loop`：
+
+```bash
+$skill-installer --repo zc202106/codex-skills --path skills/vs-qt-build-loop
+```
+
+等价命令示例：
 
 ```bash
 python ~/.codex/skills/install/.system-skill/skill-installer/scripts/install-skill-from-github.py --repo zc202106/codex-skills --path skills/rk3588-closed-loop
 ```
+
+```bash
+python ~/.codex/skills/install/.system-skill/skill-installer/scripts/install-skill-from-github.py --repo zc202106/codex-skills --path skills/vs-qt-build-loop
+```
+
+## 按 Skill 选择
+
+### 选择 rk3588-closed-loop
+
+适用于：
+
+- RK3588 或类似嵌入式 Linux 板端程序
+- 交叉编译
+- 部署到远端板卡
+- 远端启停与拉日志
+
+### 选择 vs-qt-build-loop
+
+适用于：
+
+- Windows 本机构建与运行
+- VS2017 + Qt 5.11.0 工程
+- `.sln` / `.vcxproj` / `.pro`
+- UI 逻辑 bug 闭环
+- 编译成功后自动运行与抓控制台日志
+- 需要在修复前后保留追溯记录
+
+## vs-qt-build-loop 快速说明
+
+这个 skill 的目标不是只做“编译成功”，而是尽量完成：
+
+1. 用户提出问题
+2. 根据问题定位 UI 或业务逻辑代码
+3. 在对应位置补诊断日志
+4. 自动编译
+5. 编译成功后自动运行程序
+6. 按配置执行 GUI 复现步骤
+7. 抓取控制台日志
+8. 根据日志继续修复
+
+当前默认配置已适配本仓库中的：
+
+- `D:\Video\150\GroundNode\PoseidonCore.sln`
+- `D:\Video\150\GroundNode\Ruiyan_UAV`
+
+翻译文件默认同步到：
+
+- `D:\Video\150\GroundNode\Ruiyan_UAV`
+- `D:\Video\150\GroundNode\x64\Release\Ruiyan_UAV`
+
+追溯目录默认生成在：
+
+- `D:\Video\150\GroundNode\_codex_trace`
 
 ## 接入步骤
 

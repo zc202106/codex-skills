@@ -1,0 +1,7 @@
+interface:
+  display_name: "VS+Qt构建闭环"
+  short_description: "Windows 下 VS2017 与 Qt5.11 项目自动构建修复闭环"
+  default_prompt: "使用 $vs-qt-build-loop 在 Windows 上构建、修复并整理 Visual Studio + Qt 项目。"
+
+policy:
+  allow_implicit_invocation: true
