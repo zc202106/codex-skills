@@ -25,6 +25,7 @@
       "Configuration": "Release",
       "Platform": "x64",
       "QtInstall": "C:\\Qt\\Qt5.11.0\\5.11.0\\msvc2017_64",
+      "QtMsBuild": "D:\\Video\\150\\GroundNode\\QtMsBuild",
       "TrackFileAccess": "false",
       "ForceRebuild": "true"
     },
