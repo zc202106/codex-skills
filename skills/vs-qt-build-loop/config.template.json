@@ -61,8 +61,13 @@
   },
   "runtime": {
     "enabled": true,
-    "workingDirectory": "D:\\Work\\Demo\\build\\bin",
     "executablePath": "D:\\Work\\Demo\\build\\bin\\Demo.exe",
+    "executableName": "Demo.exe",
+    "searchDirectories": [
+      "D:\\Work\\Demo\\build\\bin",
+      "D:\\Work\\Demo\\x64\\Release"
+    ],
+    "workingDirectory": "D:\\Work\\Demo\\build\\bin",
     "arguments": [],
     "startupTimeoutSeconds": 15,
     "captureDurationSeconds": 20,
@@ -88,14 +93,46 @@
     ],
     "uiAutomation": {
       "windowTitlePattern": "Demo",
+      "windowFindTimeoutSeconds": 5,
       "postLaunchDelaySeconds": 3,
-      "actions": []
+      "actions": [
+        {
+          "type": "wait_window",
+          "windowTitlePattern": "Demo",
+          "description": "等待主窗口出现"
+        },
+        {
+          "type": "activate_window",
+          "windowTitlePattern": "Demo",
+          "description": "激活主窗口",
+          "continueOnError": false
+        }
+      ]
     }
   },
   "trace": {
     "directoryName": "_codex_trace",
     "maxAttempts": 3,
     "saveBeforeAfter": true
+  },
+  "projectGuard": {
+    "enabled": true,
+    "roots": [
+      "D:\\Work\\Demo"
+    ],
+    "includePatterns": [
+      "*.sln",
+      "*.vcxproj",
+      "*.vcxproj.filters",
+      "*.props",
+      "*.targets",
+      "*.pro",
+      "*.pri"
+    ],
+    "excludeDirectories": [
+      ".git",
+      ".vs"
+    ]
   },
   "repair": {
     "enableAutoFix": true,

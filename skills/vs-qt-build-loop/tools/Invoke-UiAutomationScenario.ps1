@@ -1,12 +1,16 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
-    [string]$ConfigPath,
+    [string]$ConfigPath = '',
+
+    [string]$Profile = '',
 
     [Parameter(Mandatory = $true)]
     [string]$OutputPath,
 
-    [int]$ProcessId = 0
+    [int]$ProcessId = 0,
+
+    [ValidateSet('auto', 'uiAutomation', 'steps')]
+    [string]$ActionSource = 'auto'
 )
 
 Set-StrictMode -Version Latest
@@ -27,36 +31,224 @@ public static class CodexUser32 {
 
     [DllImport("user32.dll")]
     public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, UIntPtr dwExtraInfo);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 }
 "@
 
+$ConfigPath = Resolve-ConfigReference -ScriptRoot $PSScriptRoot -ConfigPath $ConfigPath -Profile $Profile
 $config = Read-Config -ConfigPath $ConfigPath
 $repro = $config.repro
 
-if (-not $repro.enabled -or $repro.mode -ne 'ui-automation') {
+function Test-IsAutomationActionType {
+    param(
+        [string]$ActionType
+    )
+
+    return @(
+        'wait',
+        'wait_window',
+        'launch',
+        'activate_window',
+        'send_keys',
+        'send_text',
+        'click_position',
+        'click_control',
+        'set_text_control',
+        'invoke_control',
+        'close_window'
+    ) -contains $ActionType
+}
+
+function New-DisabledResult {
+    param(
+        [string]$Note,
+        [string]$ResolvedActionSource = 'none'
+    )
+
     $result = [pscustomobject]@{
         Enabled = $false
         Executed = $false
+        ProcessId = $ProcessId
+        ActionSource = $ResolvedActionSource
+        Success = $false
         Actions = @()
-        Note = '当前未启用真实 GUI 自动化。'
+        Note = $Note
     }
     Save-JsonFile -Path $OutputPath -InputObject $result
     return $result
 }
 
+if (-not $repro.enabled) {
+    return New-DisabledResult -Note '未启用复现场景。'
+}
+
+if ($repro.mode -ne 'ui-automation') {
+    return New-DisabledResult -Note "当前模式不是 ui-automation: $($repro.mode)"
+}
+
+$stepActions = @($repro.steps | Where-Object {
+    $stepType = [string](Get-OptionalPropertyValue -InputObject $_ -Name 'type' -DefaultValue '')
+    Test-IsAutomationActionType -ActionType $stepType
+})
+$uiAutomationActions = @(@($repro.uiAutomation.actions) | Where-Object { $null -ne $_ })
+$resolvedActionSource = switch ($ActionSource) {
+    'steps' { 'steps' }
+    'uiAutomation' { 'uiAutomation' }
+    default {
+        if ($uiAutomationActions.Count -gt 0) {
+            'uiAutomation'
+        } elseif ($stepActions.Count -gt 0) {
+            'steps'
+        } else {
+            'uiAutomation'
+        }
+    }
+}
+
+$actions = @(if ($resolvedActionSource -eq 'steps') {
+    $stepActions
+} else {
+    $uiAutomationActions
+})
+
+if ($actions.Count -eq 0) {
+    return New-DisabledResult -Note '未配置可执行的自动化动作。' -ResolvedActionSource $resolvedActionSource
+}
+
+if ($ProcessId -le 0) {
+    return New-DisabledResult -Note '缺少有效的 ProcessId，无法附着到目标程序。' -ResolvedActionSource $resolvedActionSource
+}
+
 $shell = New-Object -ComObject WScript.Shell
+$defaultWindowTitlePattern = [string](Get-OptionalPropertyValue -InputObject $repro.uiAutomation -Name 'windowTitlePattern' -DefaultValue '')
+$defaultFindTimeoutSeconds = [int](Get-OptionalPropertyValue -InputObject $repro.uiAutomation -Name 'windowFindTimeoutSeconds' -DefaultValue 5)
+$postLaunchDelaySeconds = [int](Get-OptionalPropertyValue -InputObject $repro.uiAutomation -Name 'postLaunchDelaySeconds' -DefaultValue 0)
 $actionsResult = @()
+$stoppedOnFailure = $false
+
+function Get-ActionWindowTitlePattern {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Action
+    )
+
+    $pattern = [string](Get-OptionalPropertyValue -InputObject $Action -Name 'windowTitlePattern' -DefaultValue '')
+    if (-not [string]::IsNullOrWhiteSpace($pattern)) {
+        return $pattern
+    }
+
+    return $defaultWindowTitlePattern
+}
+
+function Get-ActionTimeoutSeconds {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Action
+    )
+
+    return [int](Get-OptionalPropertyValue -InputObject $Action -Name 'timeoutSeconds' -DefaultValue $defaultFindTimeoutSeconds)
+}
+
+function Find-WindowElement {
+    param(
+        [string]$WindowTitlePattern,
+        [int]$TimeoutSeconds = 5
+    )
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ((Get-Date) -lt $deadline) {
+        $windows = [System.Windows.Automation.AutomationElement]::RootElement.FindAll(
+            [System.Windows.Automation.TreeScope]::Children,
+            [System.Windows.Automation.Condition]::TrueCondition
+        )
+
+        foreach ($window in $windows) {
+            if ($ProcessId -gt 0 -and $window.Current.ProcessId -ne $ProcessId) {
+                continue
+            }
+
+            $name = $window.Current.Name
+            if ([string]::IsNullOrWhiteSpace($WindowTitlePattern)) {
+                return $window
+            }
+
+            if (-not [string]::IsNullOrWhiteSpace($name) -and $name -match $WindowTitlePattern) {
+                return $window
+            }
+        }
+
+        Start-Sleep -Milliseconds 300
+    }
+
+    return $null
+}
 
 function Invoke-WindowActivate {
     param(
-        [string]$WindowTitlePattern
+        [string]$WindowTitlePattern,
+        [int]$TimeoutSeconds = 5
     )
 
-    if ([string]::IsNullOrWhiteSpace($WindowTitlePattern)) {
+    function Test-WindowIsForeground {
+        param(
+            [Parameter(Mandatory = $true)]
+            [System.Windows.Automation.AutomationElement]$WindowElement
+        )
+
+        $foregroundWindowHandle = [CodexUser32]::GetForegroundWindow()
+        if ($foregroundWindowHandle -eq [IntPtr]::Zero) {
+            return $false
+        }
+
+        $foregroundProcessId = 0
+        [void][CodexUser32]::GetWindowThreadProcessId($foregroundWindowHandle, [ref]$foregroundProcessId)
+        if ($foregroundProcessId -ne $WindowElement.Current.ProcessId) {
+            return $false
+        }
+
+        return $true
+    }
+
+    $window = Find-WindowElement -WindowTitlePattern $WindowTitlePattern -TimeoutSeconds $TimeoutSeconds
+    if ($null -eq $window) {
         return $false
     }
 
-    return $shell.AppActivate($WindowTitlePattern)
+    try {
+        $pattern = $null
+        if ($window.TryGetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern, [ref]$pattern)) {
+            ([System.Windows.Automation.WindowPattern]$pattern).SetWindowVisualState([System.Windows.Automation.WindowVisualState]::Normal)
+        }
+        $window.SetFocus()
+    } catch {
+        Write-Log -Level WARN -Message "窗口聚焦失败，尝试回退到 AppActivate: $($_.Exception.Message)"
+    }
+
+    Start-Sleep -Milliseconds 200
+    if (Test-WindowIsForeground -WindowElement $window) {
+        return $true
+    }
+
+    $appActivateTarget = if (-not [string]::IsNullOrWhiteSpace($WindowTitlePattern)) {
+        $WindowTitlePattern
+    } else {
+        $ProcessId
+    }
+    if ($shell.AppActivate($appActivateTarget)) {
+        Start-Sleep -Milliseconds 200
+        $window = Find-WindowElement -WindowTitlePattern $WindowTitlePattern -TimeoutSeconds 1
+        if ($null -ne $window -and (Test-WindowIsForeground -WindowElement $window)) {
+            return $true
+        }
+    }
+
+    Write-Log -Level WARN -Message "窗口激活失败: pattern='$WindowTitlePattern', processId=$ProcessId"
+    return $false
 }
 
 function Invoke-MouseClick {
@@ -87,32 +279,6 @@ function Get-ControlTypeObject {
     }
 
     return $field.GetValue($null)
-}
-
-function Find-WindowElement {
-    param(
-        [string]$WindowTitlePattern,
-        [int]$TimeoutSeconds = 5
-    )
-
-    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
-    while ((Get-Date) -lt $deadline) {
-        $windows = [System.Windows.Automation.AutomationElement]::RootElement.FindAll(
-            [System.Windows.Automation.TreeScope]::Children,
-            [System.Windows.Automation.Condition]::TrueCondition
-        )
-
-        foreach ($window in $windows) {
-            $name = $window.Current.Name
-            if (-not [string]::IsNullOrWhiteSpace($name) -and $name -match $WindowTitlePattern) {
-                return $window
-            }
-        }
-
-        Start-Sleep -Milliseconds 300
-    }
-
-    return $null
 }
 
 function Find-ControlElement {
@@ -155,6 +321,76 @@ function Find-ControlElement {
     }
 
     return $WindowElement.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
+}
+
+function Get-AutomationElementSnapshot {
+    param(
+        [Parameter(Mandatory = $true)]
+        [System.Windows.Automation.AutomationElement]$Element,
+
+        [int]$Depth = 0,
+
+        [int]$MaxDepth = 3
+    )
+
+    $left = $Element.Current.BoundingRectangle.Left
+    $top = $Element.Current.BoundingRectangle.Top
+    $width = $Element.Current.BoundingRectangle.Width
+    $height = $Element.Current.BoundingRectangle.Height
+
+    $snapshot = [ordered]@{
+        name = $Element.Current.Name
+        automationId = $Element.Current.AutomationId
+        className = $Element.Current.ClassName
+        controlType = if ($null -ne $Element.Current.ControlType) { $Element.Current.ControlType.ProgrammaticName } else { '' }
+        frameworkId = $Element.Current.FrameworkId
+        isEnabled = $Element.Current.IsEnabled
+        processId = $Element.Current.ProcessId
+        boundingRectangle = [ordered]@{
+            left = if ([double]::IsInfinity($left) -or [double]::IsNaN($left)) { $null } else { [math]::Round($left, 2) }
+            top = if ([double]::IsInfinity($top) -or [double]::IsNaN($top)) { $null } else { [math]::Round($top, 2) }
+            width = if ([double]::IsInfinity($width) -or [double]::IsNaN($width)) { $null } else { [math]::Round($width, 2) }
+            height = if ([double]::IsInfinity($height) -or [double]::IsNaN($height)) { $null } else { [math]::Round($height, 2) }
+        }
+        children = @()
+    }
+
+    if ($Depth -ge $MaxDepth) {
+        return [pscustomobject]$snapshot
+    }
+
+    $children = $Element.FindAll(
+        [System.Windows.Automation.TreeScope]::Children,
+        [System.Windows.Automation.Condition]::TrueCondition
+    )
+
+    $childSnapshots = @()
+    foreach ($child in $children) {
+        $childSnapshots += Get-AutomationElementSnapshot -Element $child -Depth ($Depth + 1) -MaxDepth $MaxDepth
+    }
+    $snapshot.children = $childSnapshots
+
+    return [pscustomobject]$snapshot
+}
+
+function Save-WindowSnapshot {
+    param(
+        [System.Windows.Automation.AutomationElement]$WindowElement
+    )
+
+    if ($null -eq $WindowElement) {
+        return $null
+    }
+
+    $snapshotPath = '{0}.window-tree.json' -f $OutputPath
+    $snapshot = [pscustomobject]@{
+        generatedAt = (Get-Date).ToString('s')
+        processId = $ProcessId
+        actionSource = $resolvedActionSource
+        window = Get-AutomationElementSnapshot -Element $WindowElement -Depth 0 -MaxDepth 3
+    }
+    Save-JsonFile -Path $snapshotPath -InputObject $snapshot
+    return $snapshotPath
 }
 
 function Invoke-ControlClick {
@@ -209,34 +445,100 @@ function Invoke-ControlSetText {
     return 'sendkeys'
 }
 
-Start-Sleep -Seconds ([int]$repro.uiAutomation.postLaunchDelaySeconds)
+function Invoke-WindowClose {
+    param(
+        [Parameter(Mandatory = $true)]
+        [System.Windows.Automation.AutomationElement]$WindowElement
+    )
 
-foreach ($action in $repro.uiAutomation.actions) {
-    if (($action.PSObject.Properties.Name -contains 'enabled') -and (-not [bool]$action.enabled)) {
+    $pattern = $null
+    if ($WindowElement.TryGetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern, [ref]$pattern)) {
+        ([System.Windows.Automation.WindowPattern]$pattern).Close()
+        return 'window-pattern'
+    }
+
+    $WindowElement.SetFocus()
+    Start-Sleep -Milliseconds 100
+    [System.Windows.Forms.SendKeys]::SendWait('%{F4}')
+    return 'alt-f4'
+}
+
+function Invoke-ClickOrInvokeControl {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Action,
+
+        [Parameter(Mandatory = $true)]
+        [string]$DetailPrefix
+    )
+
+    $pattern = Get-ActionWindowTitlePattern -Action $Action
+    $window = Find-WindowElement -WindowTitlePattern $pattern -TimeoutSeconds (Get-ActionTimeoutSeconds -Action $Action)
+    if ($null -eq $window) {
+        return @{ success = $false; detail = "未找到窗口: $pattern" }
+    }
+
+    $element = Find-ControlElement `
+        -WindowElement $window `
+        -ControlName (Get-OptionalPropertyValue -InputObject $Action -Name 'controlName' -DefaultValue '') `
+        -AutomationId (Get-OptionalPropertyValue -InputObject $Action -Name 'automationId' -DefaultValue '') `
+        -ControlType (Get-OptionalPropertyValue -InputObject $Action -Name 'controlType' -DefaultValue '')
+    if ($null -eq $element) {
+        return @{ success = $false; detail = '未找到目标控件' }
+    }
+
+    $method = Invoke-ControlClick -Element $element
+    return @{
+        success = -not [string]::IsNullOrWhiteSpace($method)
+        detail  = "${DetailPrefix}: $method"
+    }
+}
+
+Start-Sleep -Seconds $postLaunchDelaySeconds
+
+$initialWindow = Find-WindowElement -WindowTitlePattern $defaultWindowTitlePattern -TimeoutSeconds $defaultFindTimeoutSeconds
+$windowSnapshotPath = Save-WindowSnapshot -WindowElement $initialWindow
+
+for ($index = 0; $index -lt $actions.Count; $index++) {
+    $action = $actions[$index]
+    $isEnabled = [bool](Get-OptionalPropertyValue -InputObject $action -Name 'enabled' -DefaultValue $true)
+    if (-not $isEnabled) {
         continue
     }
 
-    $actionType = $action.type
+    $actionType = [string](Get-OptionalPropertyValue -InputObject $action -Name 'type' -DefaultValue '')
     $actionResult = [ordered]@{
+        index = $index + 1
         type = $actionType
+        description = [string](Get-OptionalPropertyValue -InputObject $action -Name 'description' -DefaultValue '')
         success = $true
         detail = ''
+        startedAt = (Get-Date).ToString('s')
     }
 
     switch ($actionType) {
+        'launch' {
+            $actionResult.detail = '进程已由运行脚本启动，跳过 launch。'
+        }
         'wait' {
-            $seconds = if ($action.PSObject.Properties.Name -contains 'seconds') { [int]$action.seconds } else { 1 }
+            $seconds = [int](Get-OptionalPropertyValue -InputObject $action -Name 'seconds' -DefaultValue 1)
             Start-Sleep -Seconds $seconds
             $actionResult.detail = "等待 $seconds 秒"
         }
+        'wait_window' {
+            $pattern = Get-ActionWindowTitlePattern -Action $action
+            $window = Find-WindowElement -WindowTitlePattern $pattern -TimeoutSeconds (Get-ActionTimeoutSeconds -Action $action)
+            $actionResult.success = $null -ne $window
+            $actionResult.detail = if ($actionResult.success) { "窗口已出现: $pattern" } else { "等待窗口超时: $pattern" }
+        }
         'activate_window' {
-            $pattern = $action.windowTitlePattern
-            $ok = Invoke-WindowActivate -WindowTitlePattern $pattern
+            $pattern = Get-ActionWindowTitlePattern -Action $action
+            $ok = Invoke-WindowActivate -WindowTitlePattern $pattern -TimeoutSeconds (Get-ActionTimeoutSeconds -Action $action)
             $actionResult.success = [bool]$ok
             $actionResult.detail = "激活窗口: $pattern"
         }
         'send_keys' {
-            $keys = $action.keys
+            $keys = [string](Get-OptionalPropertyValue -InputObject $action -Name 'keys' -DefaultValue '')
             if (-not [string]::IsNullOrWhiteSpace($keys)) {
                 $shell.SendKeys($keys)
                 $actionResult.detail = "发送按键: $keys"
@@ -246,7 +548,7 @@ foreach ($action in $repro.uiAutomation.actions) {
             }
         }
         'send_text' {
-            $text = $action.text
+            $text = [string](Get-OptionalPropertyValue -InputObject $action -Name 'text' -DefaultValue '')
             if (-not [string]::IsNullOrWhiteSpace($text)) {
                 $shell.SendKeys($text)
                 $actionResult.detail = "发送文本: $text"
@@ -256,77 +558,60 @@ foreach ($action in $repro.uiAutomation.actions) {
             }
         }
         'click_position' {
-            if (($action.PSObject.Properties.Name -contains 'x') -and ($action.PSObject.Properties.Name -contains 'y')) {
-                Invoke-MouseClick -X ([int]$action.x) -Y ([int]$action.y)
-                $actionResult.detail = "点击坐标: ($($action.x), $($action.y))"
+            $x = Get-OptionalPropertyValue -InputObject $action -Name 'x' -DefaultValue $null
+            $y = Get-OptionalPropertyValue -InputObject $action -Name 'y' -DefaultValue $null
+            if ($null -ne $x -and $null -ne $y) {
+                Invoke-MouseClick -X ([int]$x) -Y ([int]$y)
+                $actionResult.detail = "点击坐标: ($x, $y)"
             } else {
                 $actionResult.success = $false
                 $actionResult.detail = '缺少 x/y'
             }
         }
         'click_control' {
-            $window = Find-WindowElement -WindowTitlePattern $action.windowTitlePattern
-            if ($null -eq $window) {
-                $actionResult.success = $false
-                $actionResult.detail = "未找到窗口: $($action.windowTitlePattern)"
-            } else {
-                $element = Find-ControlElement `
-                    -WindowElement $window `
-                    -ControlName $action.controlName `
-                    -AutomationId $action.automationId `
-                    -ControlType $action.controlType
-                if ($null -eq $element) {
-                    $actionResult.success = $false
-                    $actionResult.detail = '未找到目标控件'
-                } else {
-                    $method = Invoke-ControlClick -Element $element
-                    $actionResult.success = -not [string]::IsNullOrWhiteSpace($method)
-                    $actionResult.detail = "点击控件: $method"
-                }
-            }
+            $r = Invoke-ClickOrInvokeControl -Action $action -DetailPrefix '点击控件'
+            $actionResult.success = $r.success
+            $actionResult.detail = $r.detail
         }
         'set_text_control' {
-            $window = Find-WindowElement -WindowTitlePattern $action.windowTitlePattern
+            $pattern = Get-ActionWindowTitlePattern -Action $action
+            $window = Find-WindowElement -WindowTitlePattern $pattern -TimeoutSeconds (Get-ActionTimeoutSeconds -Action $action)
             if ($null -eq $window) {
                 $actionResult.success = $false
-                $actionResult.detail = "未找到窗口: $($action.windowTitlePattern)"
+                $actionResult.detail = "未找到窗口: $pattern"
             } else {
                 $element = Find-ControlElement `
                     -WindowElement $window `
-                    -ControlName $action.controlName `
-                    -AutomationId $action.automationId `
-                    -ControlType $action.controlType
+                    -ControlName (Get-OptionalPropertyValue -InputObject $action -Name 'controlName' -DefaultValue '') `
+                    -AutomationId (Get-OptionalPropertyValue -InputObject $action -Name 'automationId' -DefaultValue '') `
+                    -ControlType (Get-OptionalPropertyValue -InputObject $action -Name 'controlType' -DefaultValue '')
+                $text = [string](Get-OptionalPropertyValue -InputObject $action -Name 'text' -DefaultValue '')
                 if ($null -eq $element) {
                     $actionResult.success = $false
                     $actionResult.detail = '未找到目标控件'
-                } elseif ($action.PSObject.Properties.Name -notcontains 'text') {
+                } elseif ([string]::IsNullOrWhiteSpace($text)) {
                     $actionResult.success = $false
                     $actionResult.detail = '缺少 text'
                 } else {
-                    $method = Invoke-ControlSetText -Element $element -Text $action.text
+                    $method = Invoke-ControlSetText -Element $element -Text $text
                     $actionResult.detail = "设置控件文本: $method"
                 }
             }
         }
         'invoke_control' {
-            $window = Find-WindowElement -WindowTitlePattern $action.windowTitlePattern
+            $r = Invoke-ClickOrInvokeControl -Action $action -DetailPrefix '触发控件'
+            $actionResult.success = $r.success
+            $actionResult.detail = $r.detail
+        }
+        'close_window' {
+            $pattern = Get-ActionWindowTitlePattern -Action $action
+            $window = Find-WindowElement -WindowTitlePattern $pattern -TimeoutSeconds (Get-ActionTimeoutSeconds -Action $action)
             if ($null -eq $window) {
                 $actionResult.success = $false
-                $actionResult.detail = "未找到窗口: $($action.windowTitlePattern)"
+                $actionResult.detail = "未找到窗口: $pattern"
             } else {
-                $element = Find-ControlElement `
-                    -WindowElement $window `
-                    -ControlName $action.controlName `
-                    -AutomationId $action.automationId `
-                    -ControlType $action.controlType
-                if ($null -eq $element) {
-                    $actionResult.success = $false
-                    $actionResult.detail = '未找到目标控件'
-                } else {
-                    $method = Invoke-ControlClick -Element $element
-                    $actionResult.success = -not [string]::IsNullOrWhiteSpace($method)
-                    $actionResult.detail = "触发控件: $method"
-                }
+                $method = Invoke-WindowClose -WindowElement $window
+                $actionResult.detail = "关闭窗口: $method"
             }
         }
         default {
@@ -335,13 +620,24 @@ foreach ($action in $repro.uiAutomation.actions) {
         }
     }
 
+    $actionResult.completedAt = (Get-Date).ToString('s')
     $actionsResult += [pscustomobject]$actionResult
+
+    $continueOnError = [bool](Get-OptionalPropertyValue -InputObject $action -Name 'continueOnError' -DefaultValue $true)
+    if (-not $actionResult.success -and -not $continueOnError) {
+        $stoppedOnFailure = $true
+        break
+    }
 }
 
 $result = [pscustomobject]@{
     Enabled = $true
     Executed = $true
     ProcessId = $ProcessId
+    ActionSource = $resolvedActionSource
+    Success = @($actionsResult | Where-Object { -not $_.success }).Count -eq 0
+    StoppedOnFailure = $stoppedOnFailure
+    WindowSnapshotPath = $windowSnapshotPath
     Actions = $actionsResult
 }
 

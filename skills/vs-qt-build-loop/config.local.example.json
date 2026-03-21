@@ -1,0 +1,59 @@
+{
+  "$extends": "./config.json",
+  "environment": {
+    "vcVarsAll": "C:\\Program Files (x86)\\Microsoft Visual Studio\\2017\\Community\\VC\\Auxiliary\\Build\\vcvarsall.bat",
+    "msbuildPath": "C:\\Program Files (x86)\\Microsoft Visual Studio\\2017\\Community\\MSBuild\\15.0\\Bin\\MSBuild.exe",
+    "qtRoot": "C:\\Qt\\Qt5.11.0\\5.11.0\\msvc2017_64",
+    "qmakePath": "C:\\Qt\\Qt5.11.0\\5.11.0\\msvc2017_64\\bin\\qmake.exe",
+    "lupdatePath": "C:\\Qt\\Qt5.11.0\\5.11.0\\msvc2017_64\\bin\\lupdate.exe",
+    "lreleasePath": "C:\\Qt\\Qt5.11.0\\5.11.0\\msvc2017_64\\bin\\lrelease.exe",
+    "jomPath": "C:\\Qt\\Qt5.11.0\\Tools\\QtCreator\\bin\\jom.exe"
+  },
+  "project": {
+    "projectPath": "D:\\Path\\To\\Project.sln",
+    "solutionPath": "D:\\Path\\To\\Project.sln",
+    "proPath": "D:\\Path\\To\\Project.pro",
+    "buildDirectory": "D:\\Path\\To\\build",
+    "outputDirectory": "D:\\Path\\To\\build\\bin",
+    "msbuildProperties": {
+      "QtInstall": "C:\\Qt\\Qt5.11.0\\5.11.0\\msvc2017_64",
+      "QtMsBuild": "D:\\Path\\To\\QtMsBuild"
+    }
+  },
+  "translations": {
+    "tsSearchRoot": "D:\\Path\\To\\Project",
+    "lupdateTargets": [
+      "D:\\Path\\To\\Project.pro"
+    ],
+    "qmOutputDirectory": "D:\\Path\\To\\translations",
+    "copyTargets": [
+      "D:\\Path\\To\\translations",
+      "D:\\Path\\To\\build\\bin"
+    ]
+  },
+  "uiDiagnostics": {
+    "defaultTargets": [
+      "D:\\Path\\To\\Project"
+    ]
+  },
+  "runtime": {
+    "executablePath": "D:\\Path\\To\\build\\bin\\Demo.exe",
+    "executableName": "Demo.exe",
+    "searchDirectories": [
+      "D:\\Path\\To\\build\\bin",
+      "D:\\Path\\To\\x64\\Release"
+    ],
+    "workingDirectory": "D:\\Path\\To\\build\\bin"
+  },
+  "repro": {
+    "mode": "manual-assisted",
+    "uiAutomation": {
+      "windowTitlePattern": "Demo"
+    }
+  },
+  "projectGuard": {
+    "roots": [
+      "D:\\Path\\To\\Project"
+    ]
+  }
+}

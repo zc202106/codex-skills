@@ -42,16 +42,41 @@
 
 ## 配置拆分建议
 
-- `config.template.json`
-  用作通用模板，不写死具体项目路径
 - `config.json`
-  用作当前项目实例配置，允许写入已验证的实际路径和参数
+  用作公共基线配置，不写死具体项目路径
+- `config.local.example.json`
+  用作项目覆盖示例，展示如何只覆盖本机和本项目差异
+- `config.local.json`
+  用作当前机器的本地实例配置，建议加入 `.gitignore`
+- `config.<profile>.local.json`
+  用作多项目 profile 配置，例如 `config.groundnode.local.json`
+- `projectGuard`
+  用作工程配置保护，防止闭环过程中悄悄改写 `.sln/.vcxproj/.props/.targets/.pro/.pri`
 
 迁移到新项目时，优先复制：
 
-- `config.template.json -> config.json`
+- `config.local.example.json -> config.local.json`
 
-然后只改项目相关字段，不改脚本。
+然后只改 `config.local.json` 里的项目相关字段，不改公共基线和脚本。
+
+如果同一台机器要维护多个项目，推荐：
+
+- `config.groundnode.local.json`
+- `config.demo.local.json`
+- `config.other.local.json`
+
+运行时通过 `-Profile groundnode` 之类的参数切换，不要来回手改同一个 `config.local.json`。
+
+## 工程配置保护
+
+默认启用 `projectGuard`：
+
+- 构建前扫描工程配置文件快照
+- 构建后再次扫描
+- 如发现变化，立即中止闭环
+- 在 trace 日志目录输出 `project-config-guard.json`
+
+这层保护只盯工程配置文件，不拦截正常源码修改。
 
 ## 允许自动修复的典型场景
 

@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
-    [string]$ConfigPath,
+    [string]$ConfigPath = '',
+
+    [string]$Profile = '',
 
     [Parameter(Mandatory = $true)]
     [string]$ProjectPath
@@ -11,6 +12,8 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 . "$PSScriptRoot\Common.ps1"
+
+$ConfigPath = Resolve-ConfigReference -ScriptRoot $PSScriptRoot -ConfigPath $ConfigPath -Profile $Profile
 
 function Invoke-BuildOnce {
     [CmdletBinding()]
@@ -55,10 +58,10 @@ function Invoke-MsBuild {
         $targets += "/t:$targetName"
     }
 
-    if (-not ($properties -match '^/nologo$')) {
+    if (-not ($properties | Where-Object { $_ -eq '/nologo' })) {
         $properties += '/nologo'
     }
-    if (-not ($properties -match '^/verbosity:')) {
+    if (-not ($properties | Where-Object { $_ -match '^/verbosity:' })) {
         $properties += '/verbosity:minimal'
     }
 
@@ -112,6 +115,19 @@ function Invoke-QmakeBuild {
         -LogPath $LogPath
 }
 
+function Add-TraceSummary {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$TraceDirectory,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Message
+    )
+
+    $summaryPath = Join-Path -Path $TraceDirectory -ChildPath 'change-summary.md'
+    [System.IO.File]::AppendAllText($summaryPath, "`r`n- $Message", [System.Text.UTF8Encoding]::new($false))
+}
+
 function Invoke-AutoFix {
     [CmdletBinding()]
     param(
@@ -136,15 +152,14 @@ function Invoke-AutoFix {
     foreach ($fix in $fixes) {
         switch ($fix) {
             'rerun-qmake' {
-                $traceSummary = "执行自动修复: 重新生成 qmake 工程。"
-                [System.IO.File]::AppendAllText((Join-Path -Path $TraceInfo.TraceDirectory -ChildPath 'change-summary.md'), "`r`n- $traceSummary", [System.Text.UTF8Encoding]::new($false))
+                Add-TraceSummary -TraceDirectory $TraceInfo.TraceDirectory -Message '执行自动修复: 重新生成 qmake 工程。'
                 $tempLog = Join-Path -Path $TraceInfo.LogsDirectory -ChildPath 'rerun-qmake.log'
                 Invoke-QmakeBuild -Config $Config -Target $Target -LogPath $tempLog | Out-Null
                 return $true
             }
             'ensure-output-directory' {
                 Ensure-Directory -Path $Target.OutputDirectory | Out-Null
-                [System.IO.File]::AppendAllText((Join-Path -Path $TraceInfo.TraceDirectory -ChildPath 'change-summary.md'), "`r`n- 执行自动修复: 创建输出目录 $($Target.OutputDirectory)", [System.Text.UTF8Encoding]::new($false))
+                Add-TraceSummary -TraceDirectory $TraceInfo.TraceDirectory -Message "执行自动修复: 创建输出目录 $($Target.OutputDirectory)"
                 return $true
             }
             'refresh-translations' {
@@ -153,7 +168,7 @@ function Invoke-AutoFix {
                     -ProjectRoot $Target.ProjectRoot `
                     -OutputDirectory $Target.OutputDirectory `
                     -ManifestPath (Join-Path -Path $TraceInfo.LogsDirectory -ChildPath $Config.report.qmManifestFileName) | Out-Null
-                [System.IO.File]::AppendAllText((Join-Path -Path $TraceInfo.TraceDirectory -ChildPath 'change-summary.md'), "`r`n- 执行自动修复: 重新生成 Qt 翻译文件。", [System.Text.UTF8Encoding]::new($false))
+                Add-TraceSummary -TraceDirectory $TraceInfo.TraceDirectory -Message '执行自动修复: 重新生成 Qt 翻译文件。'
                 return $true
             }
         }
@@ -181,21 +196,41 @@ function Invoke-RuntimePhase {
         }
     }
 
-    $reproSummaryPath = Join-Path -Path $TraceInfo.LogsDirectory -ChildPath 'repro-summary.json'
-    $reproResult = & "$PSScriptRoot\Invoke-ReproScenario.ps1" `
-        -ConfigPath $ConfigPath `
-        -OutputPath $reproSummaryPath
-
     $runtimeLogPath = Join-Path -Path $TraceInfo.LogsDirectory -ChildPath 'runtime.log'
     $runtimeResult = & "$PSScriptRoot\Start-ProgramWithLogs.ps1" `
         -ConfigPath $ConfigPath `
         -LogPath $runtimeLogPath
+
+    $reproResult = $runtimeResult.Repro
+    if ($reproResult) {
+        Save-JsonFile -Path (Join-Path -Path $TraceInfo.LogsDirectory -ChildPath 'repro-summary.json') -InputObject $reproResult
+    }
 
     $runtimeAnalysis = & "$PSScriptRoot\Analyze-RuntimeLog.ps1" `
         -ConfigPath $ConfigPath `
         -LogPath $runtimeLogPath `
         -ExitCode ([int]$runtimeResult.ExitCode) `
         -TimedOut ([bool]$runtimeResult.TimedOut)
+
+    if ($reproResult -and $reproResult.Enabled -and ($Config.repro.mode -eq 'ui-automation') -and -not $reproResult.Success) {
+        $runtimeAnalysis = [pscustomobject]@{
+            RuntimeSuccess = $false
+            ErrorCategory = 'repro-scenario-failed'
+            Confidence = 'high'
+            SuggestedFixes = @()
+            CanAutoFix = $false
+            Matches = @(
+                [pscustomobject]@{
+                    Id = 'repro-scenario-failed'
+                    Category = 'repro-scenario-failed'
+                    Pattern = ''
+                    AutoFix = ''
+                    CanAutoFix = $false
+                    Confidence = 'high'
+                }
+            )
+        }
+    }
 
     Save-JsonFile -Path (Join-Path -Path $TraceInfo.LogsDirectory -ChildPath 'runtime-analysis.json') -InputObject $runtimeAnalysis
 
@@ -214,6 +249,7 @@ function Start-BuildLoop {
     $config = Read-Config -ConfigPath $ConfigPath
     $environmentInfo = & "$PSScriptRoot\Initialize-BuildEnvironment.ps1" -ConfigPath $ConfigPath
     $target = & "$PSScriptRoot\Resolve-BuildTarget.ps1" -ConfigPath $ConfigPath -ProjectPath $ProjectPath
+    $projectGuard = Resolve-ProjectConfigGuard -Config $config -Target $target
 
     Ensure-Directory -Path $target.BuildDirectory | Out-Null
     Ensure-Directory -Path $target.OutputDirectory | Out-Null
@@ -239,6 +275,11 @@ function Start-BuildLoop {
             -FilesBefore $trackedFiles `
             -Summary "第 $attempt 次闭环开始。"
 
+        $guardSnapshotBefore = @()
+        if ($projectGuard.Enabled) {
+            $guardSnapshotBefore = @(Get-ProjectConfigSnapshot -Guard $projectGuard)
+        }
+
         $translationResult = & "$PSScriptRoot\Update-QtTranslations.ps1" `
             -ConfigPath $ConfigPath `
             -ProjectRoot $target.ProjectRoot `
@@ -251,12 +292,63 @@ function Start-BuildLoop {
             -Target $target `
             -LogPath $logPath
 
-        $attemptReports += [pscustomobject]@{
+        $attemptReport = [ordered]@{
             attempt = $attempt
             buildMode = $target.BuildMode
             exitCode = $buildResult.ExitCode
             logPath = $buildResult.LogPath
             command = $buildResult.Command
+            projectGuardChanged = $false
+            projectGuardReportPath = $null
+        }
+        $attemptReports += [pscustomobject]$attemptReport
+
+        if ($projectGuard.Enabled) {
+            $guardSnapshotAfter = @(Get-ProjectConfigSnapshot -Guard $projectGuard)
+            $guardChanges = @(Compare-ProjectConfigSnapshot -Before $guardSnapshotBefore -After $guardSnapshotAfter)
+            $guardReportPath = Join-Path -Path $traceInfo.LogsDirectory -ChildPath 'project-config-guard.json'
+            $guardReport = [pscustomobject]@{
+                enabled = $true
+                checkedAt = (Get-Date).ToString('s')
+                roots = $projectGuard.Roots
+                includePatterns = $projectGuard.IncludePatterns
+                excludeDirectories = $projectGuard.ExcludeDirectories
+                beforeCount = $guardSnapshotBefore.Count
+                afterCount = $guardSnapshotAfter.Count
+                changed = $guardChanges.Count -gt 0
+                changes = $guardChanges
+            }
+            Save-JsonFile -Path $guardReportPath -InputObject $guardReport
+            $attemptReports[-1].projectGuardReportPath = $guardReportPath
+
+            if ($guardChanges.Count -gt 0) {
+                $attemptReports[-1].projectGuardChanged = $true
+                $lastAnalysis = [pscustomobject]@{
+                    RuntimeSuccess = $false
+                    ErrorCategory = 'project-config-changed'
+                    Confidence = 'high'
+                    SuggestedFixes = @()
+                    CanAutoFix = $false
+                    Matches = @(
+                        [pscustomobject]@{
+                            Id = 'project-config-changed'
+                            Category = 'project-config-changed'
+                            Pattern = ''
+                            AutoFix = ''
+                            CanAutoFix = $false
+                            Confidence = 'high'
+                        }
+                    )
+                    ChangedFiles = $guardChanges
+                    GuardReportPath = $guardReportPath
+                }
+                [System.IO.File]::AppendAllText(
+                    (Join-Path -Path $traceInfo.TraceDirectory -ChildPath 'change-summary.md'),
+                    "`r`n- 检测到工程配置文件被修改，已中止闭环并输出保护报告: $guardReportPath",
+                    [System.Text.UTF8Encoding]::new($false))
+                Write-Log -Level ERROR -Message "检测到工程配置文件变化，已中止闭环。详情见: $guardReportPath"
+                break
+            }
         }
 
         if ($buildResult.ExitCode -eq 0) {
@@ -306,6 +398,7 @@ function Start-BuildLoop {
         projectPath = $ProjectPath
         buildMode = $target.BuildMode
         success = $success
+        projectGuard = $projectGuard
         attempts = $attemptReports
         translation = $translationResult
         runtime = $runtimePhase
@@ -333,6 +426,11 @@ function Start-BuildLoop {
 
     if ($lastAnalysis) {
         $reportLines += "- 最后错误分类: $($lastAnalysis.ErrorCategory)"
+    }
+
+    if ($projectGuard.Enabled) {
+        $guardTriggered = @($attemptReports | Where-Object { $_.projectGuardChanged }).Count -gt 0
+        $reportLines += "- 工程配置保护: $(if ($guardTriggered) { '检测到变更' } else { '未检测到变更' })"
     }
 
     [System.IO.File]::WriteAllText($reportMdPath, ($reportLines -join "`r`n"), [System.Text.UTF8Encoding]::new($false))

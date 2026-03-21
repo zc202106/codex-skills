@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
-    [string]$ConfigPath,
+    [string]$ConfigPath = '',
+
+    [string]$Profile = '',
 
     [Parameter(Mandatory = $true)]
     [string]$ProjectPath
@@ -12,6 +13,7 @@ $ErrorActionPreference = 'Stop'
 
 . "$PSScriptRoot\Common.ps1"
 
+$ConfigPath = Resolve-ConfigReference -ScriptRoot $PSScriptRoot -ConfigPath $ConfigPath -Profile $Profile
 $config = Read-Config -ConfigPath $ConfigPath
 $resolvedProjectPath = (Resolve-Path -LiteralPath $ProjectPath).Path
 

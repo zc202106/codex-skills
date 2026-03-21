@@ -1,0 +1,175 @@
+{
+  "$extends": "./config.json",
+  "environment": {
+    "vcVarsAll": "C:\\Program Files (x86)\\Microsoft Visual Studio\\2017\\Community\\VC\\Auxiliary\\Build\\vcvarsall.bat",
+    "msbuildPath": "C:\\Program Files (x86)\\Microsoft Visual Studio\\2017\\Community\\MSBuild\\15.0\\Bin\\MSBuild.exe",
+    "qtRoot": "C:\\Qt\\Qt5.11.0\\5.11.0\\msvc2017_64",
+    "qmakePath": "C:\\Qt\\Qt5.11.0\\5.11.0\\msvc2017_64\\bin\\qmake.exe",
+    "lupdatePath": "C:\\Qt\\Qt5.11.0\\5.11.0\\msvc2017_64\\bin\\lupdate.exe",
+    "lreleasePath": "C:\\Qt\\Qt5.11.0\\5.11.0\\msvc2017_64\\bin\\lrelease.exe",
+    "jomPath": "C:\\Qt\\Qt5.11.0\\Tools\\QtCreator\\bin\\jom.exe"
+  },
+  "project": {
+    "projectPath": "D:\\Video\\150\\GroundNode\\PoseidonCore.sln",
+    "solutionPath": "D:\\Video\\150\\GroundNode\\PoseidonCore.sln",
+    "proPath": "D:\\Video\\150\\GroundNode\\Ruiyan_UAV\\Ruiyan_UAV.pro",
+    "buildDirectory": "D:\\Video\\150\\GroundNode\\Ruiyan_UAV\\x64\\Release",
+    "outputDirectory": "D:\\Video\\150\\GroundNode\\x64\\Release\\Ruiyan_UAV",
+    "msbuildProperties": {
+      "QtInstall": "C:\\Qt\\Qt5.11.0\\5.11.0\\msvc2017_64",
+      "QtMsBuild": "D:\\Video\\150\\GroundNode\\QtMsBuild"
+    }
+  },
+  "translations": {
+    "tsSearchRoot": "D:\\Video\\150\\GroundNode\\Ruiyan_UAV",
+    "lupdateTargets": [
+      "D:\\Video\\150\\GroundNode\\Ruiyan_UAV\\Ruiyan_UAV.pro"
+    ],
+    "qmOutputDirectory": "D:\\Video\\150\\GroundNode\\Ruiyan_UAV",
+    "copyTargets": [
+      "D:\\Video\\150\\GroundNode\\Ruiyan_UAV",
+      "D:\\Video\\150\\GroundNode\\x64\\Release\\Ruiyan_UAV"
+    ]
+  },
+  "uiDiagnostics": {
+    "defaultTargets": [
+      "D:\\Video\\150\\GroundNode\\Ruiyan_UAV"
+    ],
+    "keywordRules": [
+      {
+        "id": "login-flow",
+        "keywords": [
+          "登录",
+          "login"
+        ],
+        "preferredFiles": [
+          "D:\\Video\\150\\GroundNode\\Ruiyan_UAV\\Login.cpp",
+          "D:\\Video\\150\\GroundNode\\Ruiyan_UAV\\Login.h"
+        ]
+      },
+      {
+        "id": "main-window",
+        "keywords": [
+          "主界面",
+          "主窗口",
+          "main window"
+        ],
+        "preferredFiles": [
+          "D:\\Video\\150\\GroundNode\\Ruiyan_UAV\\MainWindows.cpp",
+          "D:\\Video\\150\\GroundNode\\Ruiyan_UAV\\ControlPage.cpp"
+        ]
+      }
+    ]
+  },
+  "runtime": {
+    "executablePath": "D:\\Video\\150\\GroundNode\\x64\\Release\\Ruiyan_UAV\\Ruiyan_UAV.exe",
+    "executableName": "Ruiyan_UAV.exe",
+    "searchDirectories": [
+      "D:\\Video\\150\\GroundNode\\x64\\Release\\Ruiyan_UAV",
+      "D:\\Video\\150\\GroundNode\\Ruiyan_UAV\\x64\\Release"
+    ],
+    "workingDirectory": "D:\\Video\\150\\GroundNode\\x64\\Release\\Ruiyan_UAV",
+    "errorRules": [
+      {
+        "id": "qt-platform-plugin-missing",
+        "pattern": "Could not find the Qt platform plugin",
+        "category": "qt-platform-plugin-missing",
+        "autoFix": ""
+      },
+      {
+        "id": "translation-load-failed",
+        "pattern": "installTranslator failed",
+        "category": "translation-load-failed",
+        "autoFix": "refresh-translations"
+      },
+      {
+        "id": "fatal-runtime",
+        "pattern": "ASSERT|Unhandled exception|Segmentation fault|Access violation",
+        "category": "fatal-runtime",
+        "autoFix": ""
+      }
+    ]
+  },
+  "repro": {
+    "mode": "ui-automation",
+    "scenarioName": "GroundNode 默认启动观察",
+    "steps": [
+      {
+        "type": "launch",
+        "description": "启动 Ruiyan_UAV 主程序并观察控制台输出"
+      },
+      {
+        "type": "wait",
+        "seconds": 20,
+        "description": "等待界面初始化和首轮日志输出"
+      }
+    ],
+    "uiAutomation": {
+      "windowTitlePattern": "地面站控制系统",
+      "actions": [
+        {
+          "type": "wait_window",
+          "windowTitlePattern": "地面站控制系统",
+          "description": "等待主窗口出现",
+          "continueOnError": false
+        },
+        {
+          "type": "activate_window",
+          "windowTitlePattern": "地面站控制系统",
+          "description": "激活主窗口",
+          "continueOnError": false
+        },
+        {
+          "type": "wait",
+          "seconds": 1,
+          "description": "等待窗口稳定"
+        }
+      ]
+    }
+  },
+  "projectGuard": {
+    "roots": [
+      "D:\\Video\\150\\GroundNode"
+    ]
+  },
+  "repair": {
+    "errorRules": [
+      {
+        "id": "qt-generated-file-missing",
+        "pattern": "Cannot open include file: 'ui_",
+        "category": "qt-generated-file-missing",
+        "autoFix": "rerun-qmake"
+      },
+      {
+        "id": "qt-moc-symbol-missing",
+        "pattern": "unresolved external symbol.*metaObject",
+        "category": "qt-moc-symbol-missing",
+        "autoFix": "rerun-qmake"
+      },
+      {
+        "id": "link-output-path-missing",
+        "pattern": "LNK1104",
+        "category": "link-output-path-missing",
+        "autoFix": "ensure-output-directory"
+      },
+      {
+        "id": "translation-output-missing",
+        "pattern": "lrelease error",
+        "category": "translation-output-missing",
+        "autoFix": "refresh-translations"
+      },
+      {
+        "id": "toolset-missing",
+        "pattern": "MSB8020",
+        "category": "toolset-missing",
+        "autoFix": ""
+      },
+      {
+        "id": "msbuild-filetracker-failure",
+        "pattern": "Microsoft\\.Build\\.Utilities\\.FileTracker",
+        "category": "msbuild-filetracker-failure",
+        "autoFix": ""
+      }
+    ]
+  }
+}

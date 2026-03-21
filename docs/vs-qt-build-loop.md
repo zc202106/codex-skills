@@ -22,8 +22,10 @@
 - 自动更新 `.ts` 并生成 `.qm`
 - 同步翻译文件到源码目录和 exe 运行目录
 - 编译失败时按规则分析与重试
+- 运行前按 `executablePath / executableName + searchDirectories` 自动解析真实 exe
 - 编译成功后自动运行程序并抓取控制台日志
-- 记录运行期分析结果
+- 记录运行期分析结果与真实复现结果
+- 构建前后自动校验工程配置文件是否被改写
 - 在 `.sln` 同级生成 `_codex_trace` 追溯目录
 - 支持 UI 逻辑问题的诊断日志建议
 - 支持 GUI 复现步骤定义
@@ -56,6 +58,9 @@
 skills/vs-qt-build-loop/
 ├─ SKILL.md
 ├─ config.json
+├─ config.local.example.json
+├─ config.groundnode.local.example.json
+├─ config.local.json
 └─ tools/
    ├─ Common.ps1
    ├─ Initialize-BuildEnvironment.ps1
@@ -81,6 +86,12 @@ skills/vs-qt-build-loop/
 skills/vs-qt-build-loop/config.json
 ```
 
+项目落地时，推荐再准备：
+
+```text
+skills/vs-qt-build-loop/config.local.json
+```
+
 至少确认这些节点：
 
 - `environment`
@@ -89,6 +100,36 @@ skills/vs-qt-build-loop/config.json
 - `runtime`
 - `repro`
 - `uiDiagnostics`
+- `projectGuard`
+
+推荐做法：
+
+- `config.json` 只保留公共基线
+- 从 `config.local.example.json` 复制出 `config.local.json`
+- 只把项目路径、Qt 路径、运行路径、UI 动作这些机器差异写进 `config.local.json`
+- `config.local.json` 里通过 `"$extends": "./config.json"` 继承公共基线
+- 多项目并行时，改用 `config.<profile>.local.json`
+
+不要直接把某个项目的绝对路径长期写死到公共基线 `config.json`。
+
+### Profile 用法
+
+如果同一台机器要同时维护多个项目，推荐命名：
+
+- `config.groundnode.local.json`
+- `config.demo.local.json`
+- `config.other.local.json`
+
+主入口和常用工具现在都支持：
+
+- `-ConfigPath`
+- `-Profile`
+
+优先级如下：
+
+- 显式传 `-ConfigPath`：直接使用指定文件
+- 传 `-Profile groundnode`：依次查找 `config.groundnode.local.json`、`config.groundnode.json`
+- 两者都不传：依次查找 `config.local.json`、`config.json`
 
 ### 2. 绑定实际工程路径
 
@@ -99,7 +140,17 @@ skills/vs-qt-build-loop/config.json
 - `project.proPath`
 - `project.outputDirectory`
 - `runtime.executablePath`
+- `runtime.executableName`
+- `runtime.searchDirectories`
 - `runtime.workingDirectory`
+
+如果你不想把某个固定 exe 绝对路径写死，推荐：
+
+- 保留 `runtime.executablePath` 作为已知稳定路径
+- 同时补 `runtime.executableName`
+- 再补 `runtime.searchDirectories`
+
+这样脚本会优先使用显式路径，路径失效时再到候选目录里自动找 exe，不需要改 VS 工程配置。
 
 ### 3. 配置翻译同步目录
 
@@ -143,21 +194,47 @@ skills/vs-qt-build-loop/config.json
 
 - `repro.mode = ui-automation`
 
+`ui-automation` 模式下，脚本会先启动程序，再按 `ProcessId` 附着到当前新进程执行复现场景，避免误操作到同标题的其他窗口。
+
+`ui-automation` 模式下默认优先执行 `repro.uiAutomation.actions`；如果这里没配动作，才回退到 `repro.steps` 里的可执行动作。
+
 ### 6. 配置 UI 诊断日志建议
 
 如果你经常处理固定模块的 UI 问题，可以在这里维护关键词到文件的映射：
 
 - `uiDiagnostics.keywordRules`
 
+### 7. 配置工程保护
+
+如果你担心脚本改坏 VS 工程配置，保持以下配置开启：
+
+- `projectGuard.enabled = true`
+- `projectGuard.includePatterns`
+- `projectGuard.excludeDirectories`
+
+默认会在构建前后比较这些文件：
+
+- `*.sln`
+- `*.vcxproj`
+- `*.vcxproj.filters`
+- `*.props`
+- `*.targets`
+- `*.pro`
+- `*.pri`
+
+一旦检测到变更，闭环会立刻中止，并把明细写到 trace 目录下的 `project-config-guard.json`。
+
 ## GUI 自动化动作
 
 ### 基础动作
 
 - `wait`
+- `wait_window`
 - `activate_window`
 - `send_keys`
 - `send_text`
 - `click_position`
+- `close_window`
 
 ### 控件级动作
 
@@ -181,20 +258,43 @@ skills/vs-qt-build-loop/config.json
 - `RadioButton`
 - `TabItem`
 
+推荐优先使用：
+
+- `wait_window`
+- `activate_window`
+- `click_control`
+- `set_text_control`
+
+这样比纯坐标点击更稳，也更不受分辨率影响。
+
 ## 推荐执行方式
 
 推荐直接执行：
 
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File .\skills\vs-qt-build-loop\tools\Invoke-VsQtBuildLoop.ps1 -ConfigPath .\skills\vs-qt-build-loop\config.json -ProjectPath D:\Video\150\GroundNode\PoseidonCore.sln
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\skills\vs-qt-build-loop\tools\Invoke-VsQtBuildLoop.ps1 -ConfigPath .\skills\vs-qt-build-loop\config.local.json -ProjectPath D:\Path\Project.sln
+```
+
+如果你已经按 profile 命名配置，更推荐：
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\skills\vs-qt-build-loop\tools\Invoke-VsQtBuildLoop.ps1 -Profile groundnode -ProjectPath D:\Video\150\GroundNode\PoseidonCore.sln
 ```
 
 如果只想单独调某个阶段，也可以分别执行：
 
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File .\skills\vs-qt-build-loop\tools\Update-QtTranslations.ps1 -ConfigPath .\skills\vs-qt-build-loop\config.json -ProjectRoot D:\Video\150\GroundNode -OutputDirectory D:\Video\150\GroundNode\x64\Release\Ruiyan_UAV
-pwsh -NoProfile -ExecutionPolicy Bypass -File .\skills\vs-qt-build-loop\tools\Add-DiagnosticLogs.ps1 -ConfigPath .\skills\vs-qt-build-loop\config.json -IssueText "主界面切换语言后按钮状态没有刷新"
-pwsh -NoProfile -ExecutionPolicy Bypass -File .\skills\vs-qt-build-loop\tools\Invoke-ReproScenario.ps1 -ConfigPath .\skills\vs-qt-build-loop\config.json -OutputPath .\repro-summary.json
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\skills\vs-qt-build-loop\tools\Update-QtTranslations.ps1 -ConfigPath .\skills\vs-qt-build-loop\config.local.json -ProjectRoot D:\Path\Project -OutputDirectory D:\Path\Project\build\bin
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\skills\vs-qt-build-loop\tools\Add-DiagnosticLogs.ps1 -ConfigPath .\skills\vs-qt-build-loop\config.local.json -IssueText "主界面切换语言后按钮状态没有刷新"
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\skills\vs-qt-build-loop\tools\Invoke-ReproScenario.ps1 -ConfigPath .\skills\vs-qt-build-loop\config.local.json -OutputPath .\repro-summary.json
+```
+
+使用 profile 也同样可以：
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\skills\vs-qt-build-loop\tools\Update-QtTranslations.ps1 -Profile groundnode -ProjectRoot D:\Video\150\GroundNode -OutputDirectory D:\Video\150\GroundNode\x64\Release\Ruiyan_UAV
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\skills\vs-qt-build-loop\tools\Add-DiagnosticLogs.ps1 -Profile groundnode -IssueText "主界面切换语言后按钮状态没有刷新"
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\skills\vs-qt-build-loop\tools\Invoke-ReproScenario.ps1 -Profile groundnode -OutputPath .\repro-summary.json
 ```
 
 ## 使用建议
@@ -216,6 +316,9 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\skills\vs-qt-build-loop\tools\In
 - 自动编译
 - 自动运行
 - 控制台日志抓取
+- 自动附着到新启动进程执行 GUI 复现
+- 自动导出窗口与控件树快照，便于配置后续动作
+- 工程配置文件防篡改检测
 - 翻译同步
 - 追溯记录
 - UI 诊断日志建议

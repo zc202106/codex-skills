@@ -1,3 +1,5 @@
 .DS_Store
 Thumbs.db
 /PUSH_TO_GITHUB.md
+skills/vs-qt-build-loop/config.local.json
+skills/vs-qt-build-loop/config.*.local.json

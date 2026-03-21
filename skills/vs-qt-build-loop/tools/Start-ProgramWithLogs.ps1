@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
-    [string]$ConfigPath,
+    [string]$ConfigPath = '',
+
+    [string]$Profile = '',
 
     [Parameter(Mandatory = $true)]
     [string]$LogPath
@@ -12,6 +13,7 @@ $ErrorActionPreference = 'Stop'
 
 . "$PSScriptRoot\Common.ps1"
 
+$ConfigPath = Resolve-ConfigReference -ScriptRoot $PSScriptRoot -ConfigPath $ConfigPath -Profile $Profile
 $config = Read-Config -ConfigPath $ConfigPath
 $runtime = $config.runtime
 
@@ -23,17 +25,16 @@ if (-not $runtime.enabled) {
         ExitCode = $null
         WasKilled = $false
         TimedOut = $false
+        Repro = $null
     }
 }
 
-if (-not (Test-Path -LiteralPath $runtime.executablePath)) {
-    throw "运行目标不存在: $($runtime.executablePath)"
-}
+$runtimeLaunch = Resolve-RuntimeLaunchConfig -Config $config
 
 Ensure-Directory -Path (Split-Path -Path $LogPath -Parent) | Out-Null
 $stderrLogPath = '{0}.stderr.log' -f $LogPath
 
-$argumentList = @($runtime.arguments)
+$argumentList = @($runtimeLaunch.Arguments)
 $argumentLine = if ($argumentList.Count -gt 0) {
     ($argumentList | ForEach-Object {
         if ($_ -match '\s') { '"{0}"' -f $_ } else { $_ }
@@ -42,21 +43,39 @@ $argumentLine = if ($argumentList.Count -gt 0) {
     ''
 }
 
-Write-Log -Message "启动程序: $($runtime.executablePath) $argumentLine"
-$process = Start-Process -FilePath $runtime.executablePath `
+Write-Log -Message "启动程序: $($runtimeLaunch.ExecutablePath) $argumentLine"
+$process = Start-Process -FilePath $runtimeLaunch.ExecutablePath `
     -ArgumentList $argumentLine `
-    -WorkingDirectory $runtime.workingDirectory `
+    -WorkingDirectory $runtimeLaunch.WorkingDirectory `
     -RedirectStandardOutput $LogPath `
     -RedirectStandardError $stderrLogPath `
     -PassThru
 
-$uiAutomationResult = $null
-if ($config.repro.enabled -and $config.repro.mode -eq 'ui-automation') {
-    $uiAutomationSummaryPath = '{0}.ui-automation.json' -f $LogPath
-    $uiAutomationResult = & "$PSScriptRoot\Invoke-UiAutomationScenario.ps1" `
-        -ConfigPath $ConfigPath `
-        -OutputPath $uiAutomationSummaryPath `
-        -ProcessId $process.Id
+$reproResult = $null
+if ($config.repro.enabled) {
+    $reproSummaryPath = '{0}.repro.json' -f $LogPath
+    try {
+        $reproResult = & "$PSScriptRoot\Invoke-ReproScenario.ps1" `
+            -ConfigPath $ConfigPath `
+            -OutputPath $reproSummaryPath `
+            -ProcessId $process.Id
+    } catch {
+        $reproResult = [pscustomobject]@{
+            Enabled = $true
+            Mode = $config.repro.mode
+            ScenarioName = $config.repro.scenarioName
+            Executed = $false
+            Success = $false
+            ProcessId = $process.Id
+            Steps = @()
+            Note = "复现场景执行异常: $($_.Exception.Message)"
+        }
+        Save-JsonFile -Path $reproSummaryPath -InputObject $reproResult
+        Write-Log -Level WARN -Message $reproResult.Note
+    }
+    if (Test-Path -LiteralPath $reproSummaryPath) {
+        Copy-Item -LiteralPath $reproSummaryPath -Destination ('{0}.ui-automation.json' -f $LogPath) -Force
+    }
 }
 
 $startupTimeout = [int]$runtime.startupTimeoutSeconds
@@ -64,21 +83,24 @@ $captureDuration = [int]$runtime.captureDurationSeconds
 $timedOut = $false
 $wasKilled = $false
 
-Start-Sleep -Seconds $startupTimeout
+# 轮询等待程序启动，最多等 startupTimeout 秒，进程提前退出则不再等待
+$startDeadline = (Get-Date).AddSeconds($startupTimeout)
+while (-not $process.HasExited -and (Get-Date) -lt $startDeadline) {
+    Start-Sleep -Milliseconds 500
+}
+
+# 启动阶段结束后，再等 captureDuration 秒抓取日志
 if (-not $process.HasExited -and $runtime.stopAfterCapture) {
     Start-Sleep -Seconds $captureDuration
 }
 
 if (-not $process.HasExited -and $runtime.stopAfterCapture) {
     $process.Kill()
-    $process.WaitForExit()
     $timedOut = $true
     $wasKilled = $true
 }
 
-if (-not $process.HasExited) {
-    $process.WaitForExit()
-}
+$process.WaitForExit()
 
 if (Test-Path -LiteralPath $stderrLogPath) {
     $stderrContent = Get-Content -LiteralPath $stderrLogPath -Raw
@@ -95,7 +117,8 @@ if (Test-Path -LiteralPath $stderrLogPath) {
     ExitCode = $process.ExitCode
     WasKilled = $wasKilled
     TimedOut = $timedOut
-    ExecutablePath = $runtime.executablePath
-    WorkingDirectory = $runtime.workingDirectory
-    UiAutomation = $uiAutomationResult
+    ExecutablePath = $runtimeLaunch.ExecutablePath
+    WorkingDirectory = $runtimeLaunch.WorkingDirectory
+    SearchDirectories = $runtimeLaunch.SearchDirectories
+    Repro = $reproResult
 }
