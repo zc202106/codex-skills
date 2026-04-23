@@ -26,8 +26,7 @@
       "Platform": "x64",
       "QtInstall": "C:\\Qt\\5.11.0\\msvc2017_64",
       "QtMsBuild": "D:\\Work\\Demo\\QtMsBuild",
-      "TrackFileAccess": "false",
-      "ForceRebuild": "true"
+      "TrackFileAccess": "false"
     },
     "qmakeArguments": [],
     "jomArguments": [
