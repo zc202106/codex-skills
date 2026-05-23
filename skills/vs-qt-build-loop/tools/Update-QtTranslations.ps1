@@ -21,7 +21,7 @@ $ErrorActionPreference = 'Stop'
 $ConfigPath = Resolve-ConfigReference -ScriptRoot $PSScriptRoot -ConfigPath $ConfigPath -Profile $Profile
 $config = Read-Config -ConfigPath $ConfigPath
 if (-not $config.translations.enabled) {
-    Write-Log -Message '翻译更新未启用，跳过。'
+    Write-Log -Message 'translation update disabled, skip.'
     return [pscustomobject]@{
         Updated = $false
         TsFiles = @()
@@ -39,16 +39,21 @@ foreach ($pattern in $translationConfig.tsPatterns) {
 $tsFiles = $tsFiles | Sort-Object FullName -Unique
 
 if ($tsFiles.Count -eq 0) {
-    Write-Log -Level WARN -Message "未扫描到 .ts 文件，搜索根目录: $searchRoot"
+    Write-Log -Level WARN -Message "no ts files found under: $searchRoot"
 }
 
 foreach ($target in $translationConfig.lupdateTargets) {
     if (-not (Test-Path -LiteralPath $target)) {
-        Write-Log -Level WARN -Message "lupdate 目标不存在，跳过: $target"
+        Write-Log -Level WARN -Message "lupdate target missing, skip: $target"
         continue
     }
 
-    & $config.environment.lupdatePath $target | Out-Host
+    $lupdateCommand = 'call "{0}" {1} && "{2}" "{3}"' -f `
+        $config.environment.vcVarsAll, `
+        $config.environment.vcArch, `
+        $config.environment.lupdatePath, `
+        $target
+    & cmd.exe /c $lupdateCommand | Out-Host
 }
 
 $qmFiles = @()

@@ -51,7 +51,7 @@ $result = @{
     lupdatePath = $environment.lupdatePath
     lreleasePath = $environment.lreleasePath
     pathInjected = $qtBin
-    note = 'PowerShell 无法直接持久注入 vcvarsall.bat 的完整环境；实际构建脚本会通过 cmd /c call vcvarsall.bat && command 的方式执行。'
+    note = 'PowerShell cannot persist vcvarsall.bat environment directly; build scripts run through cmd /c call vcvarsall.bat && command.'
   }
 
 $result

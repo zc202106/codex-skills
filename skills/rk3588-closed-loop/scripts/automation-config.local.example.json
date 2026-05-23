@@ -3,7 +3,7 @@
     "wslProjectPath": "/mnt/d/Video/150/SkyNode"
   },
   "toolchain": {
-    "wslDistro": "Ubuntu",
+    "wslDistro": "Ubuntu-WSL1",
     "cCompiler": "/opt/toolchains/host/bin/aarch64-buildroot-linux-gnu-gcc",
     "cxxCompiler": "/opt/toolchains/host/bin/aarch64-buildroot-linux-gnu-g++",
     "cmake": "/opt/toolchains/host/bin/cmake"

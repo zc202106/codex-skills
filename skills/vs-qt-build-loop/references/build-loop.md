@@ -1,11 +1,10 @@
-# 构建闭环
+﻿# 构建闭环
 
 ## 适用内容
 
 需要以下细节时再读取本文件：
 
 - 构建入口如何选择
-- 翻译文件如何同步
 - 哪些编译错误允许自动修复
 - 当前项目特化的 MSBuild 参数
 
@@ -15,21 +14,17 @@
 - 没有 `.sln` 但找到 `.pro`：`qmake + jom`
 - 两者都存在且用户未指定：优先 `.sln`
 
-## 翻译更新
+### 常见误判
 
-构建前调用：
-
-- `tools/Update-QtTranslations.ps1`
-
-动作包括：
-
-- 扫描 `translations.tsPatterns`
-- 执行 `lupdate`
-- 执行 `lrelease`
-- 生成 `qm-manifest.json`
-- 复制 `.qm` 到：
-  - `translations.qmOutputDirectory`
-  - `translations.copyTargets`
+- 不要因为某个 `.vcxproj` 能单独打开，就直接拿它当主入口。
+- 如果工程的 `IncludePath`、`LibraryPath`、项目依赖或 Qt 配置依赖 `$(SolutionDir)`，单编 `.vcxproj` 时这些路径可能不会展开。
+- 典型表象：
+  - 头文件明明在仓库里，却报 `json/json.h`、`xxx.lib`、`QtMsBuild` 等找不到
+  - 日志里先看到 `Platform.default.props` 给出 `v100` 之类默认值，随后项目文件再覆盖成真实工具集，例如 `v141`；不要把前者误判成最终生效工具集
+- 处理原则：
+  - 只要仓库里有对应 `.sln`，先回到 `.sln` 入口复现
+  - 再看解决方案级 `IncludePath`、`LibraryPath`、项目引用是否恢复正常
+  - 只有确认 `.sln` 入口同样失败，才把问题归因到真实依赖缺失或工具链异常
 
 ## 当前项目的稳定参数
 
@@ -81,7 +76,6 @@
 ## 允许自动修复的典型场景
 
 - Qt 生成文件缺失：重新执行 `qmake`
-- 翻译输出目录缺失：重新生成 `.qm`
 - 输出目录缺失：自动创建目录
 
 ## 不自动修复的场景

@@ -30,7 +30,7 @@ function Resolve-ConfigReference {
 
     if (-not [string]::IsNullOrWhiteSpace($ConfigPath)) {
         if (-not (Test-Path -LiteralPath $ConfigPath)) {
-            throw "配置文件不存在: $ConfigPath"
+            throw "config file not found: $ConfigPath"
         }
 
         return (Resolve-Path -LiteralPath $ConfigPath).Path
@@ -58,9 +58,9 @@ function Resolve-ConfigReference {
     }
 
     $message = if (-not [string]::IsNullOrWhiteSpace($Profile)) {
-        "未找到 profile 对应的配置文件: $Profile。候选路径: $($candidates -join '; ')"
+        "profile config not found: $Profile. candidates: $($candidates -join '; ')"
     } else {
-        "未找到默认配置文件。候选路径: $($candidates -join '; ')"
+        "default config not found. candidates: $($candidates -join '; ')"
     }
     throw $message
 }
@@ -73,7 +73,7 @@ function Read-Config {
     )
 
     if (-not (Test-Path -LiteralPath $ConfigPath)) {
-        throw "配置文件不存在: $ConfigPath"
+        throw "config file not found: $ConfigPath"
     }
 
     $resolvedConfigPath = (Resolve-Path -LiteralPath $ConfigPath).Path
@@ -93,12 +93,12 @@ function Read-ConfigHashtable {
 
     $resolvedConfigPath = (Resolve-Path -LiteralPath $ConfigPath).Path
     if ($Visited -contains $resolvedConfigPath) {
-        throw "检测到循环配置继承: $resolvedConfigPath"
+        throw "cyclic config inheritance detected: $resolvedConfigPath"
     }
     $nextVisited = @($Visited + $resolvedConfigPath)
 
     $configDirectory = Split-Path -Path $resolvedConfigPath -Parent
-    $currentConfig = Get-Content -LiteralPath $resolvedConfigPath -Raw | ConvertFrom-Json -AsHashtable -Depth 100
+    $currentConfig = Convert-JsonTextToHashtable -JsonText (Get-Content -LiteralPath $resolvedConfigPath -Raw -Encoding UTF8)
 
     $mergedConfig = @{}
     $extendsValues = @()
@@ -114,7 +114,7 @@ function Read-ConfigHashtable {
 
         $baseConfigPath = Resolve-AbsolutePath -Path ([string]$extendsValue) -BaseDirectory $configDirectory
         if (-not (Test-Path -LiteralPath $baseConfigPath)) {
-            throw "继承的配置文件不存在: $baseConfigPath"
+            throw "extended config file not found: $baseConfigPath"
         }
 
         $baseConfig = Read-ConfigHashtable -ConfigPath $baseConfigPath -Visited $nextVisited
@@ -123,6 +123,65 @@ function Read-ConfigHashtable {
 
     $mergedConfig = Merge-ConfigData -Base $mergedConfig -Override $currentConfig
     return $mergedConfig
+}
+
+function Convert-JsonTextToHashtable {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$JsonText
+    )
+
+    # Prefer native -AsHashtable when available.
+    if ((Get-Command ConvertFrom-Json -ErrorAction Stop).Parameters.ContainsKey('AsHashtable')) {
+        return (ConvertFrom-Json -InputObject $JsonText -AsHashtable)
+    }
+
+    # Fallback for Windows PowerShell hosts that do not support -AsHashtable.
+    [void][Reflection.Assembly]::LoadWithPartialName('System.Web.Extensions')
+    if ([type]::GetType('System.Web.Script.Serialization.JavaScriptSerializer, System.Web.Extensions', $false) -ne $null) {
+        $serializer = New-Object System.Web.Script.Serialization.JavaScriptSerializer
+        $serializer.MaxJsonLength = [int]::MaxValue
+        $parsed = $serializer.DeserializeObject($JsonText)
+        return Convert-ConfigObjectToHashtable -InputObject $parsed
+    }
+
+    $parsed = $JsonText | ConvertFrom-Json
+    return Convert-ConfigObjectToHashtable -InputObject $parsed
+}
+
+function Convert-ConfigObjectToHashtable {
+    [CmdletBinding()]
+    param(
+        [AllowNull()]
+        [object]$InputObject
+    )
+
+    if ($null -eq $InputObject) {
+        return $null
+    }
+
+    if ($InputObject -is [System.Collections.IDictionary]) {
+        $result = @{}
+        foreach ($key in $InputObject.Keys) {
+            $result[$key] = Convert-ConfigObjectToHashtable -InputObject $InputObject[$key]
+        }
+        return $result
+    }
+
+    if (($InputObject -is [System.Collections.IList]) -and -not ($InputObject -is [string])) {
+        return @(foreach ($item in $InputObject) { Convert-ConfigObjectToHashtable -InputObject $item })
+    }
+
+    if ($InputObject -is [pscustomobject]) {
+        $result = @{}
+        foreach ($property in $InputObject.PSObject.Properties) {
+            $result[$property.Name] = Convert-ConfigObjectToHashtable -InputObject $property.Value
+        }
+        return $result
+    }
+
+    return $InputObject
 }
 
 function Merge-ConfigData {
@@ -346,14 +405,14 @@ function Resolve-RuntimeLaunchConfig {
         $candidateText = if ($candidatePaths.Count -gt 0) {
             $candidatePaths -join '; '
         } else {
-            '未提供 executablePath / executableName'
+            'executablePath / executableName not provided'
         }
-        throw "运行目标不存在。候选路径: $candidateText"
+        throw "runtime target not found. candidates: $candidateText"
     }
 
     $configuredWorkingDirectory = [string](Get-OptionalPropertyValue -InputObject $runtime -Name 'workingDirectory' -DefaultValue '')
     if (-not [string]::IsNullOrWhiteSpace($configuredWorkingDirectory) -and -not (Test-Path -LiteralPath $configuredWorkingDirectory -PathType Container)) {
-        Write-Log -Level WARN -Message "workingDirectory 不存在，回退到 exe 目录: $configuredWorkingDirectory"
+        Write-Log -Level WARN -Message "workingDirectory missing, fallback to exe directory: $configuredWorkingDirectory"
         $configuredWorkingDirectory = ''
     }
 
@@ -695,7 +754,7 @@ function Invoke-LoggedProcess {
         ''
     }
 
-    Write-Log -Message "执行命令: $FilePath $argumentLine"
+    Write-Log -Message "run command: $FilePath $argumentLine"
 
     Push-Location -LiteralPath $WorkingDirectory
     try {
@@ -705,7 +764,7 @@ function Invoke-LoggedProcess {
         Pop-Location
     }
 
-    Write-Log -Message "命令结束，退出码: $exitCode"
+    Write-Log -Message "command finished, exit code: $exitCode"
 
     if (Test-Path -LiteralPath $errorLogPath) {
         $stderrContent = Get-Content -LiteralPath $errorLogPath -Raw
@@ -716,7 +775,7 @@ function Invoke-LoggedProcess {
         try {
             Remove-Item -LiteralPath $errorLogPath -Force -ErrorAction Stop
         } catch {
-            Write-Log -Level WARN -Message "清理 stderr 临时日志失败，保留文件: $errorLogPath"
+            Write-Log -Level WARN -Message "failed to clean stderr temp log, keep file: $errorLogPath"
         }
     }
 

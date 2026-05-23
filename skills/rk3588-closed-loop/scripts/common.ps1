@@ -214,6 +214,20 @@ function Join-PosixCommandArguments {
     return (($Arguments | ForEach-Object { ConvertTo-PosixSingleQuotedString -Value $_ }) -join " ")
 }
 
+function ConvertTo-RemoteNonLoginShellCommand {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Command
+    )
+
+    # 远程板端通过非登录、非交互 shell 执行命令，避免 SSH 新会话加载
+    # /etc/profile.d/*.sh。现场曾遇到 /etc/profile.d/udiskie.sh 只在自动化
+    # SSH 会话中触发异常，而人工正常使用路径不会触发；这里统一清空环境并
+    # 显式设置最小 PATH，保证脚本闭环不依赖登录 profile，也不污染板端系统配置。
+    $minimalEnv = "env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME=/root USER=root LOGNAME=root"
+    return "$minimalEnv /bin/sh -c $(ConvertTo-PosixSingleQuotedString -Value $Command)"
+}
+
 function Get-RemoteProcessName {
     param(
         [Parameter(Mandatory = $true)]
@@ -272,9 +286,10 @@ function Invoke-RemoteCommand {
     )
 
     $board = Get-BoardConfig
+    $remoteCommand = ConvertTo-RemoteNonLoginShellCommand -Command $Command
     $plink = Get-Command plink -ErrorAction SilentlyContinue
     if ($plink) {
-        $result = Invoke-ExternalProcess -FilePath $plink.Source -Arguments @("-batch", "-pw", $board.password, "$($board.user)@$($board.host)", $Command) -TimeoutSeconds 20
+        $result = Invoke-ExternalProcess -FilePath $plink.Source -Arguments @("-batch", "-pw", $board.password, "$($board.user)@$($board.host)", $remoteCommand) -TimeoutSeconds 20
         return $result.Output
     }
 
@@ -289,7 +304,7 @@ function Invoke-RemoteCommand {
             "-o", "ServerAliveInterval=5",
             "-o", "ServerAliveCountMax=1",
             "$($board.user)@$($board.host)",
-            $Command
+            $remoteCommand
         )
         $quotedCommand = '"' + (("SSHPASS=$escapedPassword $bashCommand") -replace '"', '\"') + '"'
         $result = Invoke-ExternalProcess -FilePath "wsl.exe" -Arguments @("bash", "-lc", $quotedCommand) -TimeoutSeconds 20
@@ -433,7 +448,11 @@ function Start-RemoteProgramDetached {
 
     $normalizedCommand = [regex]::Replace($startCommand.Trim(), "\s*&\s*$", "")
     $remoteLogPath = "/tmp/{0}-codex-start.log" -f $ProgramName
-    $detachedCommand = "nohup sh -lc {0} </dev/null >{1} 2>&1 &" -f (ConvertTo-PosixSingleQuotedString -Value $normalizedCommand), $remoteLogPath
+    # detached 启动同样不能使用 sh -lc，避免远程 shell 进入登录语义并加载 profile。
+    # 这里由 nohup 启动一个最小环境的 /bin/sh -c，外层 Invoke-RemoteCommand 仍会再
+    # 走一次非登录 shell 包装；内外两层都保持非登录，防止后续改命令时重新触发 profile。
+    $detachedInnerCommand = ConvertTo-RemoteNonLoginShellCommand -Command $normalizedCommand
+    $detachedCommand = "nohup {0} </dev/null >{1} 2>&1 &" -f $detachedInnerCommand, $remoteLogPath
     Invoke-RemoteCommand -Command $detachedCommand
 }
 
